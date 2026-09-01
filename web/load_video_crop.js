@@ -2395,8 +2395,8 @@ app.registerExtension({
                 ctx.fillText("?", cx, cy);
 
                 if (isHovered) {
-                    const popW = 340;
-                    const popH = 264;
+                    const popW = 360;
+                    const popH = 304;
                     const popX = node.size[0] + 12;
                     const popY = -titleH;
 
@@ -2473,7 +2473,7 @@ app.registerExtension({
                     });
 
                     // Mouse Controls Section
-                    curY += 4;
+                    curY += 6;
                     ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
                     ctx.beginPath();
                     ctx.moveTo(popX + 10, curY);
@@ -2484,7 +2484,7 @@ app.registerExtension({
                     ctx.fillStyle = C.textDim;
                     ctx.font = "bold 10px sans-serif";
                     ctx.fillText("MOUSE CONTROLS:", popX + 10, curY);
-                    curY += 15;
+                    curY += 16;
 
                     ctx.font = "10px sans-serif";
                     ctx.fillStyle = C.text;
@@ -2493,7 +2493,7 @@ app.registerExtension({
                         popX + 10,
                         curY,
                     );
-                    curY += 14;
+                    curY += 16;
                     ctx.fillText(
                         "• Timeline: Drag In/Out handles • Click/scrub playhead",
                         popX + 10,

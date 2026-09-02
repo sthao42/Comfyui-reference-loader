@@ -217,18 +217,53 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "LoadVideoCrop") return;
 
+        nodeType.prototype.previewMediaType = "custom";
+        nodeType.prototype.onDrawBackground = function (_ctx) {};
+
         const onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
             const result = onNodeCreated?.apply(this, arguments);
             const node = this;
             node.resizable = true;
             // Suppress default background preview canvas from drawing over/behind our custom editor
-            node.onDrawBackground = function (_ctx) {};
-            node.previewMediaType = "video";
+            node.onDrawBackground = function (_ctx) {
+                if (
+                    node.widgets?.some(
+                        (w) =>
+                            w.name === "video-preview" ||
+                            w.element?.querySelector?.("video"),
+                    )
+                ) {
+                    cleanStockPreviewWidgets();
+                }
+            };
+            // Explicitly avoid "video" which triggers ComfyUI core's built-in useNodeVideo preview
+            node.previewMediaType = "custom";
             node.imageIndex = 0;
             node.hideOutputImages = true;
             node.hideOutputVideos = true;
             node.animatedImages = false;
+
+            // Intercept addDOMWidget to immediately reject and destroy any stock video player DOM widget
+            const origAddDOMWidget = node.addDOMWidget;
+            node.addDOMWidget = function (name, type, element, options) {
+                const n = String(name || "").toLowerCase();
+                const isVideoPreview =
+                    n === "video-preview" ||
+                    n === "videoui" ||
+                    n.includes("preview") ||
+                    type === "video" ||
+                    (element &&
+                        (element.tagName === "VIDEO" ||
+                            element.querySelector?.("video")));
+                if (isVideoPreview) {
+                    if (element) {
+                        element.remove?.();
+                    }
+                    return null;
+                }
+                return origAddDOMWidget?.apply(this, arguments);
+            };
 
             const videoWidget = node.widgets?.find((w) => w.name === "video");
             const startFrameWidget = node.widgets?.find(
@@ -252,46 +287,61 @@ app.registerExtension({
                 (w) => w.name === "playhead",
             );
 
-            // Function to suppress any stock or core preview widgets (DOM video players, preview canvas)
+            // Function to suppress and remove any stock or core preview widgets (DOM video players, preview canvas)
             function cleanStockPreviewWidgets() {
-                if (!node.widgets) return;
-                for (let i = node.widgets.length - 1; i >= 0; i--) {
-                    const w = node.widgets[i];
-                    if (!w) continue;
-                    const name = (w.name || "").toLowerCase();
-                    if (
-                        name === "video" ||
-                        name.includes("upload") ||
-                        w.type === "button"
-                    ) {
-                        continue; // Keep combo widget and upload button intact
-                    }
-                    const isStockPreview =
-                        name.includes("preview") ||
-                        name === "videoui" ||
-                        name === "audioui" ||
-                        name === "$$canvas-video-preview" ||
-                        name === "$$canvas-image-preview" ||
-                        name === "$$comfy_animation_preview" ||
-                        (w.type === "dom" &&
-                            (name.includes("preview") ||
-                                w.element?.querySelector?.("video")));
-
-                    if (isStockPreview) {
-                        w.hidden = true;
-                        w.options = w.options || {};
-                        w.options.hidden = true;
-                        if (w.element) {
-                            w.element.style.display = "none";
-                            w.element.style.visibility = "hidden";
-                            w.element.style.pointerEvents = "none";
+                if (node.videoContainer) {
+                    node.videoContainer.remove?.();
+                    node.videoContainer = null;
+                }
+                if (node.widgets) {
+                    for (let i = node.widgets.length - 1; i >= 0; i--) {
+                        const w = node.widgets[i];
+                        if (!w) continue;
+                        const name = (w.name || "").toLowerCase();
+                        if (
+                            name === "video" ||
+                            name === "start_frame" ||
+                            name === "frame_count" ||
+                            name === "fps" ||
+                            name === "model_quantize" ||
+                            name === "quantize_n" ||
+                            name === "aspect_ratio" ||
+                            name === "max_megapixels" ||
+                            name === "divisible_by" ||
+                            name === "fit" ||
+                            name === "crop" ||
+                            name === "markers" ||
+                            name === "playhead" ||
+                            name.includes("upload") ||
+                            w.type === "button"
+                        ) {
+                            continue; // Keep actual inputs and upload button intact
                         }
-                        w.computeSize = () => [0, -4];
+                        const isStockPreview =
+                            name === "video-preview" ||
+                            name.includes("preview") ||
+                            name === "videoui" ||
+                            name === "audioui" ||
+                            name === "$$canvas-video-preview" ||
+                            name === "$$canvas-image-preview" ||
+                            name === "$$comfy_animation_preview" ||
+                            w.type === "video" ||
+                            w.element?.tagName === "VIDEO" ||
+                            w.element?.querySelector?.("video");
+
+                        if (isStockPreview) {
+                            if (w.element) {
+                                w.element.remove?.();
+                            }
+                            w.onRemove?.();
+                            node.widgets.splice(i, 1);
+                        }
                     }
                 }
                 node.imgs = null;
                 node.video = null;
-                node.videoContainer = null;
+                node.images = null;
+                node.preview = null;
             }
 
             // Hide raw JSON / internal state widgets from default widget stack and collapse row heights
@@ -994,8 +1044,23 @@ app.registerExtension({
             node.onConfigure = function () {
                 node._was_configured = true;
                 const ret = origOnConfigure?.apply(this, arguments);
-                node.onDrawBackground = function (_ctx) {};
+                node.previewMediaType = "custom";
+                node.onDrawBackground = function (_ctx) {
+                    if (
+                        node.widgets?.some(
+                            (w) =>
+                                w.name === "video-preview" ||
+                                w.element?.querySelector?.("video"),
+                        )
+                    ) {
+                        cleanStockPreviewWidgets();
+                    }
+                };
                 cleanStockPreviewWidgets();
+                // Schedule checks to catch any asynchronous core preview restorations
+                requestAnimationFrame(cleanStockPreviewWidgets);
+                setTimeout(cleanStockPreviewWidgets, 100);
+                setTimeout(cleanStockPreviewWidgets, 500);
                 if (videoWidget?.value) {
                     lastVideoVal = videoWidget.value;
                     loadVideo(videoWidget.value, false);
@@ -1007,6 +1072,8 @@ app.registerExtension({
             node.onExecuted = function () {
                 const ret = origOnExecuted?.apply(this, arguments);
                 cleanStockPreviewWidgets();
+                requestAnimationFrame(cleanStockPreviewWidgets);
+                setTimeout(cleanStockPreviewWidgets, 100);
                 return ret;
             };
 

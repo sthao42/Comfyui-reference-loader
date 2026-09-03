@@ -30,33 +30,45 @@ const QUANTIZE_PRESETS = {
 };
 
 const ASPECT_MAP = {
+    "1:1 (Square)": 1.0,
     "1:1": 1.0,
-    "16:9": 16 / 9,
-    "9:16": 9 / 16,
-    "4:3": 4 / 3,
-    "3:4": 3 / 4,
-    "3:2": 3 / 2,
+    "2:3 (35mm Portrait)": 2 / 3,
     "2:3": 2 / 3,
+    "3:2 (35mm Standard)": 3 / 2,
+    "3:2": 3 / 2,
+    "3:4 (Standard Portrait)": 3 / 4,
+    "3:4": 3 / 4,
+    "4:3 (Standard)": 4 / 3,
+    "4:3": 4 / 3,
+    "4:5 (Instagram Portrait)": 4 / 5,
     "4:5": 4 / 5,
+    "5:4 (Photography)": 5 / 4,
     "5:4": 5 / 4,
-    "21:9": 21 / 9,
-    "9:21": 9 / 21,
+    "9:16 (Widescreen Portrait)": 9 / 16,
+    "9:16": 9 / 16,
+    "16:9 (Widescreen)": 16 / 9,
+    "16:9": 16 / 9,
+    "16:10 (Display)": 16 / 10,
     "16:10": 16 / 10,
+    "21:9 (Ultrawide)": 21 / 9,
+    "21:9": 21 / 9,
+    // Legacy presets
+    "9:21": 9 / 21,
     "10:16": 10 / 16,
     "2:1": 2.0,
     "1:2": 0.5,
 };
 
 function parseAspectRatio(val) {
-    if (!val || val === "none" || val === "free") return null;
-    if (ASPECT_MAP[val]) return ASPECT_MAP[val];
+    if (!val || String(val).toLowerCase() === "none" || val === "free") return null;
+    if (ASPECT_MAP[val] !== undefined) return ASPECT_MAP[val];
     const match = String(val).match(
-        /^(\d+(?:\.\d+)?)\s*[:/x]\s*(\d+(?:\.\d+)?)$/,
+        /^(\d+(?:\.\d+)?)\s*[:/x]\s*(\d+(?:\.\d+)?)/,
     );
     if (match) {
         const w = parseFloat(match[1]);
         const h = parseFloat(match[2]);
-        if (w > 0 && h > 0) return w / h;
+        if (w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h)) return w / h;
     }
     return null;
 }
@@ -664,7 +676,10 @@ app.registerExtension({
                 );
                 state.videoLoaded = true;
 
-                if (aspectWidget?.value && aspectWidget.value !== "none") {
+                if (
+                    aspectWidget?.value &&
+                    String(aspectWidget.value).toLowerCase() !== "none"
+                ) {
                     applyAspectRatioConstraint();
                 }
 
@@ -1379,7 +1394,8 @@ app.registerExtension({
                 ctx.textAlign = "left";
                 ctx.fillStyle = C.textDim;
                 const aspectLabel =
-                    aspectWidget?.value && aspectWidget.value !== "none"
+                    aspectWidget?.value &&
+                    String(aspectWidget.value).toLowerCase() !== "none"
                         ? ` [${aspectWidget.value}]`
                         : "";
                 ctx.fillText(`PREVIEW MONITOR${aspectLabel}`, x + 8, y + 15);

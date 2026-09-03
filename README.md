@@ -47,7 +47,7 @@ This package reads files supplied by the user, so its security properties are:
 Loads an image with visual crop controls right on the preview:
 
 - **Interactive Cropping**: Click & drag on the preview to draw a crop box; drag inside to move; drag corners to resize; click outside to reset.
-- **Aspect Ratio Locking**: Lock crop proportions to common ratios (`16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `21:9`, etc.) or `none` for freeform.
+- **Aspect Ratio Locking**: Lock crop proportions with descriptive presets (`1:1 (Square)`, `16:9 (Widescreen)`, `9:16 (Widescreen Portrait)`, `3:2 (35mm Standard)`, `4:3 (Standard)`, `21:9 (Ultrawide)`, etc.) or `None` for freeform.
 - **Megapixel Budget & Alignment**:
   - `max_megapixels`: Scales the cropped or full image down if it exceeds the pixel budget.
   - `divisible_by`: Snaps output width and height to multiples of 8, 16, 32, or 64 for VAE compatibility.
@@ -97,7 +97,7 @@ Loads a video file with an interactive editor directly on the canvas:
 - **Diffusion Model Quantization Presets**:
   - Automatically snaps frame counts to required diffusion model grids: `Wan (4n+1)`, `Hunyuan (4n+1)`, `LTX (8n+1)`, `Cosmos (8n+1)`, `Mochi (6n+1)`, `MiniMax H3 (17n+5)`, or custom multiples of `N`.
 - **Aspect Ratio & Sizing**:
-  - Lock crops to standard aspect ratios (`16:9`, `9:16`, `1:1`, `4:3`, `3:4`, `21:9`, etc.).
+  - Lock crops to descriptive aspect ratio presets (`1:1 (Square)`, `16:9 (Widescreen)`, `9:16 (Widescreen Portrait)`, `3:2 (35mm Standard)`, `4:3 (Standard)`, `21:9 (Ultrawide)`, etc.) or `None` for freeform.
   - Fit modes: `contain` (letterbox pad), `cover` (center crop), `stretch`.
   - Megapixel capping (`max_megapixels`) and dimension alignment (`divisible_by`: 8, 16, 32, 64).
 

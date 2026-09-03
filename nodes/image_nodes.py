@@ -39,22 +39,18 @@ def _parse_crop(crop, width, height):
 
 
 ASPECT_RATIOS = [
-    "none",
-    "1:1",
-    "16:9",
-    "9:16",
-    "4:3",
-    "3:4",
-    "3:2",
-    "2:3",
-    "4:5",
-    "5:4",
-    "21:9",
-    "9:21",
-    "16:10",
-    "10:16",
-    "2:1",
-    "1:2",
+    "None",
+    "1:1 (Square)",
+    "2:3 (35mm Portrait)",
+    "3:2 (35mm Standard)",
+    "3:4 (Standard Portrait)",
+    "4:3 (Standard)",
+    "4:5 (Instagram Portrait)",
+    "5:4 (Photography)",
+    "9:16 (Widescreen Portrait)",
+    "16:9 (Widescreen)",
+    "16:10 (Display)",
+    "21:9 (Ultrawide)",
 ]
 
 DIVISIBLE_BY = [
@@ -99,8 +95,8 @@ class LoadImageCrop:
                     "tooltip": "Managed by the crop editor on the node — no need to edit by hand.",
                 }),
                 "aspect_ratio": (ASPECT_RATIOS, {
-                    "default": "none",
-                    "tooltip": "Lock crop selection to a fixed aspect ratio (e.g. 16:9, 9:16, 1:1), or 'none' for freeform.",
+                    "default": "None",
+                    "tooltip": "Lock crop selection to a fixed aspect ratio (e.g. 16:9, 9:16, 1:1), or 'None' for freeform.",
                 }),
                 "max_megapixels": ("FLOAT", {
                     "default": 0.0, "min": 0.0, "max": 128.0, "step": 0.01,
@@ -113,7 +109,7 @@ class LoadImageCrop:
             }
         }
 
-    def load(self, image, crop="", aspect_ratio="none", max_megapixels=0.0, divisible_by="disabled", **kwargs):
+    def load(self, image, crop="", aspect_ratio="None", max_megapixels=0.0, divisible_by="disabled", **kwargs):
         if not image or image == "none":
             raise ValueError("LoadImageCrop: No image file selected.")
         image_path = folder_paths.get_annotated_filepath(image)
@@ -202,7 +198,7 @@ class LoadImageCrop:
         return (images, masks, out_w, out_h)
 
     @classmethod
-    def IS_CHANGED(cls, image, crop="", aspect_ratio="none", max_megapixels=0.0, divisible_by="disabled", **kwargs):
+    def IS_CHANGED(cls, image, crop="", aspect_ratio="None", max_megapixels=0.0, divisible_by="disabled", **kwargs):
         if not image:
             return ""
         try:
@@ -228,7 +224,7 @@ class LoadImageCrop:
             return f"{image}:{crop}:{aspect_ratio}:{max_megapixels}:{divisible_by}"
 
     @classmethod
-    def VALIDATE_INPUTS(cls, image, crop="", aspect_ratio="none", max_megapixels=0.0, divisible_by="disabled", **kwargs):
+    def VALIDATE_INPUTS(cls, image, crop="", aspect_ratio="None", max_megapixels=0.0, divisible_by="disabled", **kwargs):
         if not image or not isinstance(image, str):
             return "No image file selected"
         if not folder_paths.exists_annotated_filepath(image):

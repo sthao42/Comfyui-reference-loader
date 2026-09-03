@@ -66,42 +66,74 @@ def quantize_count(n: int, mode: str, k: int = 8) -> int:
 
 # Aspect ratio and sizing helpers
 ASPECT_RATIOS = [
-    "none",
-    "1:1",
-    "16:9",
-    "9:16",
-    "4:3",
-    "3:4",
-    "3:2",
-    "2:3",
-    "4:5",
-    "5:4",
-    "21:9",
-    "9:21",
-    "16:10",
-    "10:16",
-    "2:1",
-    "1:2",
+    "None",
+    "1:1 (Square)",
+    "2:3 (35mm Portrait)",
+    "3:2 (35mm Standard)",
+    "3:4 (Standard Portrait)",
+    "4:3 (Standard)",
+    "4:5 (Instagram Portrait)",
+    "5:4 (Photography)",
+    "9:16 (Widescreen Portrait)",
+    "16:9 (Widescreen)",
+    "16:10 (Display)",
+    "21:9 (Ultrawide)",
 ]
 
 ASPECT_RATIO_VALUES: dict[str, Optional[Tuple[int, int]]] = {
+    "None": None,
     "none": None,
+    "1:1 (Square)": (1, 1),
     "1:1": (1, 1),
-    "16:9": (16, 9),
-    "9:16": (9, 16),
-    "4:3": (4, 3),
-    "3:4": (3, 4),
-    "3:2": (3, 2),
+    "2:3 (35mm Portrait)": (2, 3),
     "2:3": (2, 3),
+    "3:2 (35mm Standard)": (3, 2),
+    "3:2": (3, 2),
+    "3:4 (Standard Portrait)": (3, 4),
+    "3:4": (3, 4),
+    "4:3 (Standard)": (4, 3),
+    "4:3": (4, 3),
+    "4:5 (Instagram Portrait)": (4, 5),
     "4:5": (4, 5),
+    "5:4 (Photography)": (5, 4),
     "5:4": (5, 4),
-    "21:9": (21, 9),
-    "9:21": (9, 21),
+    "9:16 (Widescreen Portrait)": (9, 16),
+    "9:16": (9, 16),
+    "16:9 (Widescreen)": (16, 9),
+    "16:9": (16, 9),
+    "16:10 (Display)": (16, 10),
     "16:10": (16, 10),
+    "21:9 (Ultrawide)": (21, 9),
+    "21:9": (21, 9),
+    # Legacy presets
+    "9:21": (9, 21),
     "10:16": (10, 16),
     "2:1": (2, 1),
     "1:2": (1, 2),
 }
+
+
+def parse_aspect_ratio(val: Optional[str]) -> Optional[Tuple[int, int]]:
+    """Parse aspect ratio string into (w, h) tuple, or None for free/disabled."""
+    if not val:
+        return None
+    val_str = str(val).strip()
+    if val_str.lower() in ("none", "free", "disabled", "custom"):
+        return None
+    if val_str in ASPECT_RATIO_VALUES:
+        return ASPECT_RATIO_VALUES[val_str]
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*[:/x]\s*(\d+(?:\.\d+)?)", val_str)
+    if match:
+        try:
+            w = float(match.group(1))
+            h = float(match.group(2))
+            if w > 0 and h > 0:
+                if w.is_integer() and h.is_integer():
+                    return (int(w), int(h))
+                return (round(w * 1000), round(h * 1000))
+        except (ValueError, TypeError):
+            return None
+    return None
 
 DIVISIBLE_BY = [
     "disabled",
@@ -585,7 +617,7 @@ class LoadVideoCrop:
                 "aspect_ratio": (
                     ASPECT_RATIOS,
                     {
-                        "default": "none",
+                        "default": "None",
                         "tooltip": "Lock crop selection or output to standard aspect ratios (16:9, 9:16, 1:1, etc.).",
                     },
                 ),
@@ -648,7 +680,7 @@ class LoadVideoCrop:
         fps: float = 0.0,
         model_quantize: str = QUANTIZE_FREE,
         quantize_n: int = 8,
-        aspect_ratio: str = "none",
+        aspect_ratio: str = "None",
         max_megapixels: float = 0.0,
         divisible_by: str = "disabled",
         fit: str = "contain",
@@ -713,7 +745,7 @@ class LoadVideoCrop:
         height, width = frames.shape[1], frames.shape[2]
         new_width, new_height = width, height
 
-        ar_tuple = ASPECT_RATIO_VALUES.get(aspect_ratio)
+        ar_tuple = parse_aspect_ratio(aspect_ratio)
         if ar_tuple is not None:
             w_part, h_part = ar_tuple
             target_aspect = w_part / h_part
@@ -843,7 +875,7 @@ class LoadVideoCrop:
         fps: float = 0.0,
         model_quantize: str = QUANTIZE_FREE,
         quantize_n: int = 8,
-        aspect_ratio: str = "none",
+        aspect_ratio: str = "None",
         max_megapixels: float = 0.0,
         divisible_by: str = "disabled",
         fit: str = "contain",
@@ -887,7 +919,7 @@ class LoadVideoCrop:
         fps: float = 0.0,
         model_quantize: str = QUANTIZE_FREE,
         quantize_n: int = 8,
-        aspect_ratio: str = "none",
+        aspect_ratio: str = "None",
         max_megapixels: float = 0.0,
         divisible_by: str = "disabled",
         fit: str = "contain",

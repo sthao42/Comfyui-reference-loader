@@ -73,16 +73,15 @@ function parseImageValue(value) {
 }
 
 function parseAspectRatio(value) {
-    if (!value || value === "none" || value === "None") return null;
-    const parts = String(value).split(":").map(Number);
-    if (
-        parts.length === 2 &&
-        parts[0] > 0 &&
-        parts[1] > 0 &&
-        Number.isFinite(parts[0]) &&
-        Number.isFinite(parts[1])
-    ) {
-        return parts[0] / parts[1];
+    if (!value || String(value).toLowerCase() === "none" || value === "free") return null;
+    const str = String(value).trim();
+    const match = str.match(/^(\d+(?:\.\d+)?)\s*[:/x]\s*(\d+(?:\.\d+)?)/);
+    if (match) {
+        const w = parseFloat(match[1]);
+        const h = parseFloat(match[2]);
+        if (w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h)) {
+            return w / h;
+        }
     }
     return null;
 }

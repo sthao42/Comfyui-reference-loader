@@ -2,11 +2,9 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const MARGIN = 10;
-const TRANSPORT_H = 28;
 const RULER_H = 22;
 const FILMSTRIP_H = 44;
 const WAVEFORM_H = 36;
-const TIMELINE_MIN_H = RULER_H + FILMSTRIP_H + WAVEFORM_H;
 const HANDLE_RADIUS = 8;
 const CROP_HANDLE_SIZE = 6;
 const MIN_SEL_PX = 10;

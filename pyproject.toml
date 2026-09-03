@@ -1,11 +1,11 @@
 [project]
 name = "comfyui-reference-loader"
-description = "Interactive image and video visual crop, video and audio with timeline trimming, reference loading nodes for ComfyUI"
 version = "1.1.0"
+description = "Interactive visual crop, timeline, audio, and reference loading nodes for ComfyUI"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = { text = "GPL-3.0" }
 authors = [
-    { name = "sthao42" },
+    { name = "sthao42"}
 ]
 dependencies = [
     "torch",
@@ -15,7 +15,9 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/sthao42/Comfyui-reference-loader"
 Repository = "https://github.com/sthao42/Comfyui-reference-loader"
+"Bug Tracker" = "https://github.com/sthao42/Comfyui-reference-loader/issues"
 
 [tool.comfy]
 PublisherId = "sthao42"

@@ -5,7 +5,6 @@ const MARGIN = 10;
 const HANDLE_RADIUS = 7;
 const WIDGET_HEIGHT = 160;
 const HEADER_H = 22;
-const TRANSPORT_H = 28;
 const MIN_NODE_WIDTH = 380;
 const MIN_NODE_HEIGHT = 240;
 const RESIZE_CORNER_SIZE = 20;
@@ -1607,7 +1606,7 @@ app.registerExtension({
                 return r;
             };
 
-            const waveWidgetInstance = node.addCustomWidget(waveformWidget);
+            node.addCustomWidget(waveformWidget);
 
             // Ensure node computeSize enforces min width and height
             const prevComputeSize = node.computeSize;

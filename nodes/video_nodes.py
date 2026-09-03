@@ -5,7 +5,7 @@ import json
 import math
 import os
 import re
-from typing import Optional, Tuple
+from typing import Optional
 
 import folder_paths  # type: ignore[import-not-found]
 import torch
@@ -14,7 +14,7 @@ import torch
 QUANTIZE_FREE = "free"
 QUANTIZE_CUSTOM = "custom (multiple of N)"
 
-QUANTIZE_PRESETS: dict[str, Tuple[int, int]] = {
+QUANTIZE_PRESETS: dict[str, tuple[int, int]] = {
     "Wan (4n+1)": (4, 1),
     "Hunyuan (4n+1)": (4, 1),
     "LTX (8n+1)": (8, 1),
@@ -31,7 +31,7 @@ QUANTIZE_ROUND_UP = {"MiniMax H3 (17n+5)"}
 MAX_DECODE_FRAMES = 1_000_000
 
 
-def quantize_grid(mode: str, k: int = 8) -> Optional[Tuple[int, int]]:
+def quantize_grid(mode: str, k: int = 8) -> Optional[tuple[int, int]]:
     """Return (step, offset) for a quantization mode, or None for free."""
     if mode == QUANTIZE_CUSTOM:
         try:
@@ -80,7 +80,7 @@ ASPECT_RATIOS = [
     "21:9 (Ultrawide)",
 ]
 
-ASPECT_RATIO_VALUES: dict[str, Optional[Tuple[int, int]]] = {
+ASPECT_RATIO_VALUES: dict[str, Optional[tuple[int, int]]] = {
     "None": None,
     "none": None,
     "1:1 (Square)": (1, 1),
@@ -113,7 +113,7 @@ ASPECT_RATIO_VALUES: dict[str, Optional[Tuple[int, int]]] = {
 }
 
 
-def parse_aspect_ratio(val: Optional[str]) -> Optional[Tuple[int, int]]:
+def parse_aspect_ratio(val: Optional[str]) -> Optional[tuple[int, int]]:
     """Parse aspect ratio string into (w, h) tuple, or None for free/disabled."""
     if not val:
         return None
@@ -152,7 +152,7 @@ FIT_MODES = [
 
 def _parse_crop(
     crop: str, width: int, height: int
-) -> Optional[Tuple[int, int, int, int]]:
+) -> Optional[tuple[int, int, int, int]]:
     """Return (x0, y0, x1, y1) pixel box, or None for full image."""
     if not crop or width <= 0 or height <= 0:
         return None
@@ -197,7 +197,7 @@ def _resize(chw: torch.Tensor, width: int, height: int) -> torch.Tensor:
 
 def fit_frames(
     t: torch.Tensor, width: int, height: int, mode: str
-) -> Tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor]:
     """Fit [N, H, W, C] frames to target width and height using contain, cover, or stretch."""
     n, src_h, src_w, c = t.shape
     if src_h == height and src_w == width:
@@ -239,13 +239,13 @@ def _f32_pcm(wav: torch.Tensor) -> torch.Tensor:
     """Convert audio tensor to float 32-bit PCM (-1.0 to 1.0)."""
     if wav.dtype.is_floating_point:
         return wav.to(torch.float32)
-    elif wav.dtype == torch.int16:
+    if wav.dtype == torch.int16:
         return wav.float() / 32768.0
-    elif wav.dtype == torch.int32:
+    if wav.dtype == torch.int32:
         return wav.float() / 2147483648.0
-    elif wav.dtype == torch.int8:
+    if wav.dtype == torch.int8:
         return wav.float() / 128.0
-    elif wav.dtype == torch.uint8:
+    if wav.dtype == torch.uint8:
         return (wav.float() - 128.0) / 128.0
     return wav.to(torch.float32)
 
@@ -256,7 +256,7 @@ def _load_video_and_audio(
     start_frame: int = 0,
     frame_count: int = 0,
     target_fps: float = 0.0,
-) -> Tuple[torch.Tensor, Optional[dict], float, int]:
+) -> tuple[torch.Tensor, Optional[dict], float, int]:
     """Decode video frames and audio track using PyAV."""
     import av  # type: ignore[import-not-found]
 

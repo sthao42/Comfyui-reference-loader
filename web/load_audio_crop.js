@@ -199,6 +199,9 @@ app.registerExtension({
             const node = this;
             node.resizable = true;
 
+            const isVueMode = () =>
+                typeof LiteGraph !== "undefined" && !!LiteGraph.vueNodesMode;
+
             // Suppress default background preview canvas
             node.onDrawBackground = function (_ctx) {};
 
@@ -434,7 +437,6 @@ app.registerExtension({
 
                 if (
                     !forceRefresh &&
-                    state.audioBuffer &&
                     state.lastLoadedUrl === baseUrl
                 ) {
                     node.setDirtyCanvas(true, true);
@@ -537,6 +539,12 @@ app.registerExtension({
             node.onConfigure = function () {
                 node._was_configured = true;
                 const ret = origOnConfigure?.apply(this, arguments);
+                if (startWidget) {
+                    state.seekerCurrentTime = Math.max(
+                        0,
+                        Number(startWidget.value) || 0,
+                    );
+                }
                 if (audioWidget?.value) {
                     lastAudioVal = audioWidget.value;
                     loadAudioFile(false);
@@ -621,6 +629,14 @@ app.registerExtension({
                 },
 
                 computeLayoutSize: function (_n) {
+                    if (isVueMode()) {
+                        const w = state.lastDrawW || (_n?.size?.[0] ?? MIN_NODE_WIDTH);
+                        const transW = Math.max(20, w - MARGIN * 2 - 12);
+                        const transportLayout = calcAudioTransportLayout(transW);
+                        const infoH = state.duration > 0 ? 18 : 0;
+                        const h = HEADER_H + 6 + 36 + (infoH > 0 ? infoH + 4 : 0) + transportLayout.totalH + 24;
+                        return { minHeight: h, maxHeight: h, minWidth: 0 };
+                    }
                     return {
                         minHeight: WIDGET_HEIGHT,
                         maxHeight: 1000,
@@ -632,9 +648,10 @@ app.registerExtension({
                     const effWidth = _node?.size?.[0]
                         ? Math.min(widgetWidth, _node.size[0])
                         : widgetWidth;
+                    state.lastDrawW = effWidth;
                     const w = Math.max(20, effWidth - MARGIN * 2);
                     const x = MARGIN;
-                    const actualH = this.computedHeight ?? H;
+                    const actualH = isVueMode() ? (this.computedHeight ?? H) : (this.computedHeight ?? H);
                     const h = Math.max(130, actualH - 6);
 
                     ctx.save();
@@ -973,9 +990,15 @@ app.registerExtension({
                         !state.seekerBox
                     )
                         return false;
-                    const px = pos[0];
-                    const py = pos[1];
-                    if (isNodeCorner(px, py, _node || node)) {
+                    const px =
+                        isVueMode() && typeof event?.offsetX === "number"
+                            ? event.offsetX
+                            : pos[0];
+                    const py =
+                        isVueMode() && typeof event?.offsetY === "number"
+                            ? event.offsetY
+                            : pos[1];
+                    if (!isVueMode() && isNodeCorner(px, py, _node || node)) {
                         return false;
                     }
                     const t = event.type;
@@ -1549,6 +1572,39 @@ app.registerExtension({
                 window.removeEventListener("mouseup", onGlobalPointerUp);
                 stopAudio(false);
                 return origOnRemoved?.apply(this, arguments);
+            };
+
+            // In Vue (Nodes 2.0) mode the widget mirror prefers computedHeight
+            // over computeSize — but computedHeight is a stale graph-units
+            // value from the canvas-mode layout. Hide it there so the mirror
+            // falls back to computeSize with the card's real CSS width.
+            {
+                let storedHeight;
+                Object.defineProperty(waveformWidget, "computedHeight", {
+                    configurable: true,
+                    get() {
+                        return isVueMode() ? undefined : storedHeight;
+                    },
+                    set(v) {
+                        storedHeight = v;
+                    },
+                });
+            }
+
+            // Ensure any setDirtyCanvas triggers Vue widget redraw when in Vue mode
+            const origSetDirtyCanvas = node.setDirtyCanvas;
+            let inTriggerDraw = false;
+            node.setDirtyCanvas = function () {
+                const r = origSetDirtyCanvas?.apply(this, arguments);
+                if (isVueMode() && !inTriggerDraw) {
+                    inTriggerDraw = true;
+                    try {
+                        waveformWidget.triggerDraw?.();
+                    } finally {
+                        inTriggerDraw = false;
+                    }
+                }
+                return r;
             };
 
             const waveWidgetInstance = node.addCustomWidget(waveformWidget);

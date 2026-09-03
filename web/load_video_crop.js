@@ -217,7 +217,9 @@ app.registerExtension({
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "LoadVideoCrop") return;
 
-        nodeType.prototype.previewMediaType = "custom";
+        if (typeof LiteGraph === "undefined" || !LiteGraph.vueNodesMode) {
+            nodeType.prototype.previewMediaType = "custom";
+        }
         nodeType.prototype.onDrawBackground = function (_ctx) {};
 
         const onNodeCreated = nodeType.prototype.onNodeCreated;
@@ -225,6 +227,10 @@ app.registerExtension({
             const result = onNodeCreated?.apply(this, arguments);
             const node = this;
             node.resizable = true;
+
+            const isVueMode = () =>
+                typeof LiteGraph !== "undefined" && !!LiteGraph.vueNodesMode;
+
             // Suppress default background preview canvas from drawing over/behind our custom editor
             node.onDrawBackground = function (_ctx) {
                 if (
@@ -237,8 +243,11 @@ app.registerExtension({
                     cleanStockPreviewWidgets();
                 }
             };
-            // Explicitly avoid "video" which triggers ComfyUI core's built-in useNodeVideo preview
-            node.previewMediaType = "custom";
+            // Assign properties but prevent Vue mode from forcing Media Card layout
+            if (!isVueMode()) {
+                node.previewMediaType = "custom";
+            }
+
             node.imageIndex = 0;
             node.hideOutputImages = true;
             node.hideOutputVideos = true;
@@ -700,10 +709,9 @@ app.registerExtension({
                     return;
                 }
 
-                // If already loaded for this URL, skip redundant re-fetching to prevent tab-switch flicker
+                // If already loaded or in flight for this URL, skip redundant re-fetching to prevent tab-switch flicker
                 if (
                     !forceRefresh &&
-                    state.videoLoaded &&
                     state.lastLoadedUrl === url
                 ) {
                     node.setDirtyCanvas(true, true);
@@ -1043,8 +1051,11 @@ app.registerExtension({
             const origOnConfigure = node.onConfigure;
             node.onConfigure = function () {
                 node._was_configured = true;
+                // Reset to custom type in case another extension overrode it
+                if (!isVueMode()) {
+                    node.previewMediaType = "custom";
+                }
                 const ret = origOnConfigure?.apply(this, arguments);
-                node.previewMediaType = "custom";
                 node.onDrawBackground = function (_ctx) {
                     if (
                         node.widgets?.some(
@@ -1061,6 +1072,35 @@ app.registerExtension({
                 requestAnimationFrame(cleanStockPreviewWidgets);
                 setTimeout(cleanStockPreviewWidgets, 100);
                 setTimeout(cleanStockPreviewWidgets, 500);
+                // Restore saved crop from widget
+                try {
+                    const saved = cropWidget?.value
+                        ? JSON.parse(cropWidget.value)
+                        : null;
+                    if (saved && (saved.w > 0 || saved.width > 0)) {
+                        state.cropRect = {
+                            x: saved.x || 0,
+                            y: saved.y || 0,
+                            w: saved.w || saved.width || 1,
+                            h: saved.h || saved.height || 1,
+                        };
+                    } else {
+                        state.cropRect = null;
+                    }
+                } catch {
+                    state.cropRect = null;
+                }
+
+                // Restore saved playhead from widget
+                const savedPlayhead = Number(playheadWidget?.value);
+                if (Number.isFinite(savedPlayhead) && savedPlayhead >= 0) {
+                    state.currentFrame = savedPlayhead;
+                    state.playheadTime = savedPlayhead / state.fps;
+                    if (state.videoLoaded) {
+                        state.videoEl.currentTime = state.playheadTime;
+                    }
+                }
+
                 if (videoWidget?.value) {
                     lastVideoVal = videoWidget.value;
                     loadVideo(videoWidget.value, false);
@@ -1168,6 +1208,17 @@ app.registerExtension({
                 },
 
                 computeLayoutSize: function (_n) {
+                    if (isVueMode()) {
+                        const w = state.lastDrawW || (_n?.size?.[0] ?? MIN_NODE_WIDTH);
+                        const availW = Math.max(100, w - MARGIN * 2);
+                        const vw = state.videoWidth || 16;
+                        const vh = state.videoHeight || 9;
+                        const monitorH = Math.max(80, availW * (vh / vw));
+                        const infoH = state.videoLoaded ? 18 : 0;
+                        const transportLayout = calcTransportLayout(availW);
+                        const h = monitorH + 110 + (infoH > 0 ? infoH + 4 : 0) + transportLayout.totalH + 20;
+                        return { minHeight: h, maxHeight: h, minWidth: 0 };
+                    }
                     return {
                         minHeight: CUSTOM_WIDGET_MIN_H,
                         maxHeight: 100000,
@@ -1177,12 +1228,16 @@ app.registerExtension({
 
                 draw(ctx, node, widgetWidth, y, _widgetHeight) {
                     const nw = node?.size?.[0] || widgetWidth || MIN_NODE_WIDTH;
+                    const effWidth = !isVueMode() && nw ? Math.min(widgetWidth, nw) : widgetWidth;
+                    state.lastDrawW = effWidth;
                     const nh = node?.size?.[1] || MIN_NODE_HEIGHT;
                     const margin = MARGIN;
-                    const availW = Math.max(100, nw - margin * 2);
+                    const availW = Math.max(100, effWidth - margin * 2);
+                    
+                    const actualH = isVueMode() ? (this.computedHeight ?? _widgetHeight) : (nh - y - margin);
                     const availH = Math.max(
                         CUSTOM_WIDGET_MIN_H,
-                        nh - y - margin,
+                        actualH
                     );
 
                     // Video Info String
@@ -1259,6 +1314,23 @@ app.registerExtension({
                     );
                 },
             };
+
+            // In Vue (Nodes 2.0) mode the widget mirror prefers computedHeight
+            // over computeSize — but computedHeight is a stale graph-units
+            // value from the canvas-mode layout. Hide it there so the mirror
+            // falls back to computeSize with the card's real CSS width.
+            {
+                let storedHeight;
+                Object.defineProperty(customWidget, "computedHeight", {
+                    configurable: true,
+                    get() {
+                        return isVueMode() ? undefined : storedHeight;
+                    },
+                    set(v) {
+                        storedHeight = v;
+                    },
+                });
+            }
 
             // Draw Top Monitor Canvas with Interactive Crop Box
             function drawMonitor(ctx, x, y, w, h) {
@@ -2354,22 +2426,38 @@ app.registerExtension({
 
             // Route mouse events directly on the custom widget for LiteGraph
             customWidget.mouse = function (event, pos, _node) {
-                const px = pos[0];
-                const py = pos[1];
-                if (isNodeCorner(px, py, _node || node)) {
+                const px =
+                    isVueMode() && typeof event?.offsetX === "number"
+                        ? event.offsetX
+                        : pos[0];
+                const py =
+                    isVueMode() && typeof event?.offsetY === "number"
+                        ? event.offsetY
+                        : pos[1];
+                if (!isVueMode() && isNodeCorner(px, py, _node || node)) {
                     return false;
                 }
-                const t = event.type;
+                const t = event?.type;
 
                 if (t === "pointerdown" || t === "mousedown") {
+                    window.__referenceLoaderActiveNode = node.id;
                     const res = handleMouseDown(event, [px, py]);
-                    if (res) return true;
+                    if (res) {
+                        if (isVueMode()) customWidget.triggerDraw?.();
+                        return true;
+                    }
                 } else if (t === "pointermove" || t === "mousemove") {
                     const res = handleMouseMove(event, [px, py]);
-                    if (res) return true;
+                    if (res) {
+                        if (isVueMode()) customWidget.triggerDraw?.();
+                        return true;
+                    }
                 } else if (t === "pointerup" || t === "mouseup") {
                     const res = handleMouseUp(event, [px, py]);
-                    if (res) return true;
+                    if (res) {
+                        if (isVueMode()) customWidget.triggerDraw?.();
+                        return true;
+                    }
                 }
                 return false;
             };
@@ -2607,6 +2695,22 @@ app.registerExtension({
                     size[1] = Math.max(size[1], MIN_NODE_HEIGHT);
                 }
                 return origOnResize?.apply(this, arguments);
+            };
+
+            // Ensure any setDirtyCanvas triggers Vue widget redraw when in Vue mode
+            const origSetDirtyCanvas = node.setDirtyCanvas;
+            let inTriggerDraw = false;
+            node.setDirtyCanvas = function () {
+                const r = origSetDirtyCanvas?.apply(this, arguments);
+                if (isVueMode() && !inTriggerDraw) {
+                    inTriggerDraw = true;
+                    try {
+                        customWidget.triggerDraw?.();
+                    } finally {
+                        inTriggerDraw = false;
+                    }
+                }
+                return r;
             };
 
             // Register custom widget into node widget list

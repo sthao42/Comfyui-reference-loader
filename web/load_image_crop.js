@@ -137,7 +137,9 @@ app.registerExtension({
                     ? { font: 13, row: 18, handle: 12 }
                     : { font: 10, row: 14, handle: HANDLE };
 
-            node.previewMediaType = "image";
+            if (!isVueMode()) {
+                node.previewMediaType = "image";
+            }
             node.imageIndex = 0;
             node.hideOutputImages = true;
 
@@ -540,14 +542,20 @@ app.registerExtension({
                 mouse: function (event, pos, _node) {
                     if (!state.img || !state.box) return false;
                     const t = event.type;
-                    const px = pos[0];
-                    const py = pos[1];
+                    const px =
+                        isVueMode() && typeof event?.offsetX === "number"
+                            ? event.offsetX
+                            : pos[0];
+                    const py =
+                        isVueMode() && typeof event?.offsetY === "number"
+                            ? event.offsetY
+                            : pos[1];
                     const { bx, by, bw, bh } = state.box;
                     const clampX = (v) => Math.max(bx, Math.min(bx + bw, v));
                     const clampY = (v) => Math.max(by, Math.min(by + bh, v));
 
                     if (t === "pointerdown" || t === "mousedown") {
-                        if (isNodeCorner(px, py, _node || node)) {
+                        if (!isVueMode() && isNodeCorner(px, py, _node || node)) {
                             return false;
                         }
                         if (
@@ -779,6 +787,22 @@ app.registerExtension({
             };
             const editorWidget = node.addCustomWidget(editor);
 
+            // Ensure any setDirtyCanvas triggers Vue widget redraw when in Vue mode
+            const origSetDirtyCanvas = node.setDirtyCanvas;
+            let inTriggerDraw = false;
+            node.setDirtyCanvas = function () {
+                const r = origSetDirtyCanvas?.apply(this, arguments);
+                if (isVueMode() && !inTriggerDraw) {
+                    inTriggerDraw = true;
+                    try {
+                        editorWidget.triggerDraw?.();
+                    } finally {
+                        inTriggerDraw = false;
+                    }
+                }
+                return r;
+            };
+
             function cursorFor(px, py) {
                 if (!state.img || !state.box) return "";
                 if (isNodeCorner(px, py, node)) return "";
@@ -902,10 +926,9 @@ app.registerExtension({
                     ? `${baseUrl}&rand=${Date.now()}`
                     : baseUrl;
 
-                // If already loaded and the source hasn't changed, skip re-fetching to prevent tab-switch flicker
+                // If already loaded or in flight and the source hasn't changed, skip re-fetching to prevent tab-switch flicker
                 if (
                     !forceRefresh &&
-                    state.img &&
                     state.lastLoadedUrl === baseUrl
                 ) {
                     node.setDirtyCanvas(true, true);

@@ -142,20 +142,152 @@ app.registerExtension({
             node.imageIndex = 0;
             node.hideOutputImages = true;
 
-            // Suppress default background preview
-            node.onDrawBackground = (_ctx) => {};
+            let editorWidget = null;
 
-            function removeStockPreviewWidget() {
-                if (!node.widgets) return;
-                const idx = node.widgets.findIndex(
-                    (w) => w.name === "$$canvas-image-preview",
-                );
-                if (idx > -1) {
-                    node.widgets[idx].onRemove?.();
-                    node.widgets.splice(idx, 1);
+            // Clean stock ComfyUI preview widgets to prevent duplicate image rendering
+            function cleanStockPreviewWidgets() {
+                if (node.widgets) {
+                    for (let i = node.widgets.length - 1; i >= 0; i--) {
+                        const w = node.widgets[i];
+                        if (!w) continue;
+                        if ((editorWidget && w === editorWidget) || w.name === "crop_editor") continue;
+                        const name = (w.name || "").toLowerCase();
+                        const type = (w.type || "").toLowerCase();
+                        if (
+                            name === "image" ||
+                            name === "crop" ||
+                            name === "aspect_ratio" ||
+                            name === "max_megapixels" ||
+                            name === "divisible_by" ||
+                            name.includes("upload") ||
+                            w.type === "button"
+                        ) {
+                            continue; // Keep actual input widgets and upload button intact
+                        }
+                        const isStockPreview =
+                            name === "$$canvas-image-preview" ||
+                            name === "$$canvas-video-preview" ||
+                            name === "$$comfy_animation_preview" ||
+                            name === "image-preview" ||
+                            name.includes("preview") ||
+                            type === "image_preview" ||
+                            type === "image" ||
+                            (w.element &&
+                                (w.element.tagName === "IMG" ||
+                                    w.element.querySelector?.("img, video")));
+
+                        if (isStockPreview) {
+                            if (w.element) {
+                                w.element.remove?.();
+                            }
+                            w.onRemove?.();
+                            node.widgets.splice(i, 1);
+                        }
+                    }
                 }
+                node.imgs = null;
+                node.preview = null;
             }
-            removeStockPreviewWidget();
+
+            // Suppress default background preview & continually purge any stock preview widgets
+            node.onDrawBackground = function (_ctx) {
+                if (
+                    node.widgets?.some(
+                        (w) =>
+                            (!editorWidget || w !== editorWidget) &&
+                            w.name !== "crop_editor" &&
+                            (w.name === "$$canvas-image-preview" ||
+                                w.name === "$$canvas-video-preview" ||
+                                w.name === "$$comfy_animation_preview" ||
+                                w.name === "image-preview" ||
+                                w.name?.includes("preview") ||
+                                w.type === "IMAGE_PREVIEW" ||
+                                w.type === "image" ||
+                                w.element?.querySelector?.("img, video")),
+                    )
+                ) {
+                    cleanStockPreviewWidgets();
+                }
+            };
+
+            // Intercept widget additions to reject stock preview widgets
+            const origAddCustomWidget = node.addCustomWidget;
+            node.addCustomWidget = function (customWidget) {
+                if (
+                    customWidget &&
+                    (!editorWidget || customWidget !== editorWidget) &&
+                    customWidget.name !== "crop_editor"
+                ) {
+                    const name = (customWidget.name || "").toLowerCase();
+                    const type = (customWidget.type || "").toLowerCase();
+                    if (
+                        name === "$$canvas-image-preview" ||
+                        name === "$$canvas-video-preview" ||
+                        name === "$$comfy_animation_preview" ||
+                        name === "image-preview" ||
+                        name.includes("preview") ||
+                        type === "image_preview" ||
+                        type === "image"
+                    ) {
+                        return customWidget;
+                    }
+                }
+                return origAddCustomWidget.apply(this, arguments);
+            };
+
+            const origAddWidget = node.addWidget;
+            node.addWidget = function (type, name) {
+                const sName = (name || "").toLowerCase();
+                const sType = (type || "").toLowerCase();
+                if (
+                    sName === "$$canvas-image-preview" ||
+                    sName === "$$canvas-video-preview" ||
+                    sName === "$$comfy_animation_preview" ||
+                    sName === "image-preview" ||
+                    (sName.includes("preview") && sName !== "preview_crop") ||
+                    sType === "image_preview"
+                ) {
+                    return {
+                        name,
+                        type,
+                        options: {},
+                        draw: () => {},
+                        computeSize: () => [0, 0],
+                    };
+                }
+                return origAddWidget.apply(this, arguments);
+            };
+
+            const origAddDOMWidget = node.addDOMWidget;
+            node.addDOMWidget = function (name, type) {
+                const sName = (name || "").toLowerCase();
+                if (
+                    sName === "$$canvas-image-preview" ||
+                    sName === "$$canvas-video-preview" ||
+                    sName === "$$comfy_animation_preview" ||
+                    sName === "image-preview" ||
+                    sName.includes("preview")
+                ) {
+                    return {
+                        name,
+                        type,
+                        options: {},
+                        element:
+                            typeof document !== "undefined"
+                                ? document.createElement("div")
+                                : null,
+                        draw: () => {},
+                        computeSize: () => [0, 0],
+                    };
+                }
+                return origAddDOMWidget.apply(this, arguments);
+            };
+
+            cleanStockPreviewWidgets();
+            requestAnimationFrame(cleanStockPreviewWidgets);
+            setTimeout(cleanStockPreviewWidgets, 50);
+            setTimeout(cleanStockPreviewWidgets, 200);
+            setTimeout(cleanStockPreviewWidgets, 500);
 
             const state = {
                 img: null,
@@ -378,6 +510,23 @@ app.registerExtension({
                 },
 
                 draw: function (ctx, _node, widgetWidth, y, H, lowQuality) {
+                    if (
+                        node.widgets?.some(
+                            (w) =>
+                                (!editorWidget || w !== editorWidget) &&
+                                w.name !== "crop_editor" &&
+                                (w.name === "$$canvas-image-preview" ||
+                                    w.name === "$$canvas-video-preview" ||
+                                    w.name === "$$comfy_animation_preview" ||
+                                    w.name === "image-preview" ||
+                                    w.name?.includes("preview") ||
+                                    w.type === "IMAGE_PREVIEW" ||
+                                    w.type === "image"),
+                        )
+                    ) {
+                        requestAnimationFrame(cleanStockPreviewWidgets);
+                        node.setDirtyCanvas(true);
+                    }
                     const u = ui();
                     const h = (this.computedHeight ?? H) - 8;
                     const x = MARGIN;
@@ -784,7 +933,7 @@ app.registerExtension({
                     return false;
                 },
             };
-            const editorWidget = node.addCustomWidget(editor);
+            editorWidget = node.addCustomWidget(editor);
 
             // Ensure any setDirtyCanvas triggers Vue widget redraw when in Vue mode
             const origSetDirtyCanvas = node.setDirtyCanvas;
@@ -896,7 +1045,7 @@ app.registerExtension({
 
             let loadSeq = 0;
             function loadImage(autoFit = false, forceRefresh = false) {
-                removeStockPreviewWidget();
+                cleanStockPreviewWidgets();
                 const seq = ++loadSeq;
                 const info = parseImageValue(imageWidget?.value);
                 if (info) info.type = clampViewType(info.type);
@@ -912,7 +1061,7 @@ app.registerExtension({
                     );
                     state.img = null;
                     state.lastLoadedUrl = null;
-                    node.imgs = [];
+                    node.imgs = null;
                     node.images = [];
                     node.setDirtyCanvas(true, true);
                     return;
@@ -941,7 +1090,7 @@ app.registerExtension({
                     if (seq !== loadSeq) return;
                     state.img = img;
                     state.lastLoadedUrl = baseUrl;
-                    node.imgs = [img];
+                    node.imgs = null;
                     node.imageIndex = 0;
                     node.images = [
                         {
@@ -976,7 +1125,7 @@ app.registerExtension({
                             height,
                         ]);
                     }
-                    removeStockPreviewWidget();
+                    cleanStockPreviewWidgets();
                     node.setDirtyCanvas(true, true);
                     editorWidget.triggerDraw?.();
                 };
@@ -984,8 +1133,9 @@ app.registerExtension({
                     if (seq !== loadSeq) return;
                     state.img = null;
                     state.lastLoadedUrl = null;
-                    node.imgs = [];
+                    node.imgs = null;
                     node.images = [];
+                    cleanStockPreviewWidgets();
                     node.setDirtyCanvas(true, true);
                     editorWidget.triggerDraw?.();
                 };
@@ -1041,7 +1191,10 @@ app.registerExtension({
 
                 const prevCallback = imageWidget.callback;
                 imageWidget.callback = function () {
+                    cleanStockPreviewWidgets();
                     const r = prevCallback?.apply(this, arguments);
+                    cleanStockPreviewWidgets();
+                    requestAnimationFrame(cleanStockPreviewWidgets);
                     const curVal = imageWidget.value;
                     let isMaskVersion = false;
                     if (curVal !== lastImageVal) {
@@ -1063,7 +1216,15 @@ app.registerExtension({
             const prevOnConfigure = node.onConfigure;
             node.onConfigure = function () {
                 node._was_configured = true;
+                node.hideOutputImages = true;
+                if (!isVueMode()) {
+                    node.previewMediaType = "image";
+                }
                 const r = prevOnConfigure?.apply(this, arguments);
+                cleanStockPreviewWidgets();
+                requestAnimationFrame(cleanStockPreviewWidgets);
+                setTimeout(cleanStockPreviewWidgets, 100);
+                setTimeout(cleanStockPreviewWidgets, 500);
                 try {
                     const saved = cropWidget?.value
                         ? JSON.parse(cropWidget.value)
@@ -1084,9 +1245,19 @@ app.registerExtension({
                 return r;
             };
 
+            const prevOnExecuted = node.onExecuted;
+            node.onExecuted = function () {
+                const r = prevOnExecuted?.apply(this, arguments);
+                cleanStockPreviewWidgets();
+                requestAnimationFrame(cleanStockPreviewWidgets);
+                setTimeout(cleanStockPreviewWidgets, 100);
+                return r;
+            };
+
             // Track ? Help button hover on title bar
             const origOnMouseMove = node.onMouseMove;
             node.onMouseMove = function (_e, localPos) {
+                if (!localPos) return origOnMouseMove?.apply(this, arguments);
                 const [px, py] = localPos;
                 const titleH =
                     (typeof LiteGraph !== "undefined" &&
@@ -1221,11 +1392,82 @@ app.registerExtension({
                 return ret;
             };
 
-            // Ensure context menu contains Open in MaskEditor
+            // Context menu options (Open, Copy, Save, and Open in MaskEditor)
             const prevGetExtraMenuOptions = node.getExtraMenuOptions;
             node.getExtraMenuOptions = function (_canvas, options) {
                 const r = prevGetExtraMenuOptions?.apply(this, arguments);
                 if (!Array.isArray(options)) options = [];
+
+                if (state.img || state.lastLoadedUrl) {
+                    const hasOpenImage = options.some(
+                        (opt) => opt?.content === "Open Image",
+                    );
+                    if (!hasOpenImage && state.lastLoadedUrl) {
+                        options.unshift({
+                            content: "Open Image",
+                            callback: () => {
+                                let url = state.lastLoadedUrl;
+                                try {
+                                    const u = new URL(url, window.location.href);
+                                    u.searchParams.delete("preview");
+                                    url = u.toString();
+                                } catch {}
+                                window.open(url, "_blank");
+                            },
+                        });
+                    }
+                    const hasCopyImage = options.some(
+                        (opt) => opt?.content === "Copy Image",
+                    );
+                    if (!hasCopyImage && state.img) {
+                        options.unshift({
+                            content: "Copy Image",
+                            callback: async () => {
+                                try {
+                                    const c = document.createElement("canvas");
+                                    c.width =
+                                        state.img.naturalWidth || state.img.width;
+                                    c.height =
+                                        state.img.naturalHeight ||
+                                        state.img.height;
+                                    const ctx = c.getContext("2d");
+                                    ctx.drawImage(state.img, 0, 0);
+                                    c.toBlob(async (blob) => {
+                                        if (blob && navigator.clipboard?.write) {
+                                            await navigator.clipboard.write([
+                                                new ClipboardItem({
+                                                    "image/png": blob,
+                                                }),
+                                            ]);
+                                        }
+                                    }, "image/png");
+                                } catch (e) {
+                                    console.error(
+                                        "[reference-loader] Failed to copy image:",
+                                        e,
+                                    );
+                                }
+                            },
+                        });
+                    }
+                    const hasSaveImage = options.some(
+                        (opt) => opt?.content === "Save Image",
+                    );
+                    if (!hasSaveImage && state.lastLoadedUrl) {
+                        options.unshift({
+                            content: "Save Image",
+                            callback: () => {
+                                const info = parseImageValue(imageWidget?.value);
+                                const a = document.createElement("a");
+                                a.href = state.lastLoadedUrl;
+                                a.download = info?.filename || "image.png";
+                                document.body.appendChild(a);
+                                a.click();
+                                a.remove();
+                            },
+                        });
+                    }
+                }
 
                 const hasMaskEditor = options.some(
                     (opt) =>
@@ -1233,44 +1475,52 @@ app.registerExtension({
                         (opt.content.includes("MaskEditor") ||
                             opt.content.includes("Mask Editor")),
                 );
-                if (!hasMaskEditor && (node.imgs?.length || state.img)) {
+                if (!hasMaskEditor && (node.images?.length || state.img)) {
                     options.push({
                         content: "Open in MaskEditor | Image Canvas",
                         callback: () => {
-                            if (typeof useMaskEditor === "function") {
-                                try {
-                                    useMaskEditor().openMaskEditor(node);
-                                    return;
-                                } catch (e) {}
-                            }
-                            if (
-                                typeof app !== "undefined" &&
-                                app.open_maskeditor
-                            ) {
-                                try {
-                                    if (typeof ComfyApp !== "undefined") {
-                                        ComfyApp.clipspace_return_node = node;
-                                    }
-                                    app.open_maskeditor();
-                                    return;
-                                } catch (e) {}
+                            if (state.img) {
+                                node.imgs = [state.img];
                             }
                             try {
-                                app.canvas?.selectNode?.(node);
-                                if (app.executeCommand) {
-                                    app.executeCommand(
-                                        "Comfy.MaskEditor.OpenMaskEditor",
-                                    );
-                                } else if (app.command?.execute) {
-                                    app.command.execute(
-                                        "Comfy.MaskEditor.OpenMaskEditor",
+                                if (typeof useMaskEditor === "function") {
+                                    try {
+                                        useMaskEditor().openMaskEditor(node);
+                                        return;
+                                    } catch (e) {}
+                                }
+                                if (
+                                    typeof app !== "undefined" &&
+                                    app.open_maskeditor
+                                ) {
+                                    try {
+                                        if (typeof ComfyApp !== "undefined") {
+                                            ComfyApp.clipspace_return_node = node;
+                                            ComfyApp.copyToClipspace?.(node);
+                                        }
+                                        app.open_maskeditor();
+                                        return;
+                                    } catch (e) {}
+                                }
+                                try {
+                                    app.canvas?.selectNode?.(node);
+                                    if (app.executeCommand) {
+                                        app.executeCommand(
+                                            "Comfy.MaskEditor.OpenMaskEditor",
+                                        );
+                                    } else if (app.command?.execute) {
+                                        app.command.execute(
+                                            "Comfy.MaskEditor.OpenMaskEditor",
+                                        );
+                                    }
+                                } catch (e) {
+                                    console.error(
+                                        "[reference-loader] Failed to open MaskEditor:",
+                                        e,
                                     );
                                 }
-                            } catch (e) {
-                                console.error(
-                                    "[reference-loader] Failed to open MaskEditor:",
-                                    e,
-                                );
+                            } finally {
+                                cleanStockPreviewWidgets();
                             }
                         },
                     });

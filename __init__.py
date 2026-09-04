@@ -1,6 +1,6 @@
 """ComfyUI Reference Loader nodes: interactive Load Video & Crop / Timeline, Load Image & Crop, and Load Audio & Crop."""
 
-__version__ = "1.1.2"
+__version__ = "1.1.3"
 
 try:
     from .nodes import NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS

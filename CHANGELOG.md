@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-09-04
+
+### Fixed
+- **Audio Waveform Loading on Workflow Reload**: Fixed a critical race condition in `LoadAudioCrop` where consecutive load calls during graph initialization and workflow configuration caused in-flight audio decoding to be aborted and permanently frozen in `"Loading audio waveform..."`.
+- **Audio State Machine & Lifecycle**: Decoupled in-flight loading URL from active loaded buffer, added `onGraphConfigured` lifecycle hook, draw-loop self-healing, Web Audio context closed-state recovery, and click-to-retry on error.
+- **Crop Times Clamping During Load**: Prevented collapsing start and end crop times to 0 when duration is initially 0 while audio is loading.
+- **Backend Argument Normalization**: Added defensive handling in `LoadAudioCrop` (`load`, `IS_CHANGED`, `VALIDATE_INPUTS`) for audio arguments passed as dictionary objects.
+
+---
+
 ## [1.1.1] - 2026-09-04
 
 ### Fixed

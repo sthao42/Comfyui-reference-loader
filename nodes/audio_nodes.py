@@ -279,6 +279,20 @@ class LoadAudioCrop:
         }
 
     @staticmethod
+    def _normalize_audio_arg(audio):
+        """Extract a valid file string if audio was passed as a dict."""
+        if isinstance(audio, dict):
+            fn = audio.get("filename") or audio.get("name") or ""
+            sub = audio.get("subfolder") or ""
+            t = audio.get("type") or "input"
+            if sub:
+                fn = f"{sub}/{fn}"
+            if t and t != "input":
+                fn = f"{fn} [{t}]"
+            return fn
+        return audio
+
+    @staticmethod
     def _to_seconds(value, default=0.0):
         """Coerce a widget value to a non-negative finite float (defensive)."""
         try:
@@ -290,6 +304,7 @@ class LoadAudioCrop:
         return secs
 
     def load(self, audio, start_time=0.0, end_time=0.0, **kwargs):
+        audio = self._normalize_audio_arg(audio)
         if not audio or audio == "none":
             raise ValueError("LoadAudioCrop: No audio file selected.")
         audio_path = folder_paths.get_annotated_filepath(audio)
@@ -371,6 +386,7 @@ class LoadAudioCrop:
 
     @classmethod
     def IS_CHANGED(cls, audio, start_time=0.0, end_time=0.0, **kwargs):
+        audio = cls._normalize_audio_arg(audio)
         if not audio:
             return ""
         try:
@@ -394,6 +410,7 @@ class LoadAudioCrop:
 
     @classmethod
     def VALIDATE_INPUTS(cls, audio, start_time=0.0, end_time=0.0, **kwargs):
+        audio = cls._normalize_audio_arg(audio)
         if not audio:
             return "No audio file selected"
         if not isinstance(audio, str) or not folder_paths.exists_annotated_filepath(

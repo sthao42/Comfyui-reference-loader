@@ -40,7 +40,7 @@ function isNodeCorner(px, py, node, margin = RESIZE_CORNER_SIZE) {
 
 let sharedAudioCtx = null;
 function getAudioContext() {
-    if (!sharedAudioCtx) {
+    if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (AudioCtx) {
             sharedAudioCtx = new AudioCtx();
@@ -50,6 +50,24 @@ function getAudioContext() {
         sharedAudioCtx.resume().catch(() => {});
     }
     return sharedAudioCtx;
+}
+
+function decodeAudioDataSafe(ctx, arrayBuffer) {
+    return new Promise((resolve, reject) => {
+        try {
+            const slice = arrayBuffer.slice(0);
+            const p = ctx.decodeAudioData(
+                slice,
+                (decoded) => resolve(decoded),
+                (err) => reject(err),
+            );
+            if (p && typeof p.then === "function") {
+                p.then(resolve).catch(reject);
+            }
+        } catch (e) {
+            reject(e);
+        }
+    });
 }
 
 function formatTimecode(seconds) {
@@ -107,13 +125,22 @@ function parseAudioValue(value) {
         value = value[0];
     }
     if (typeof value === "object") {
-        const fn =
+        let fn =
             value.filename || value.name || (value.file && value.file.name);
         if (fn) {
+            let subfolder = value.subfolder || "";
+            let type = value.type || "input";
+            fn = String(fn).replace(/\\/g, "/");
+            const slash = fn.lastIndexOf("/");
+            if (slash >= 0) {
+                const subPart = fn.slice(0, slash);
+                subfolder = subfolder ? `${subfolder}/${subPart}` : subPart;
+                fn = fn.slice(slash + 1);
+            }
             return {
                 filename: fn,
-                type: value.type || "input",
-                subfolder: value.subfolder || "",
+                type: type,
+                subfolder: subfolder,
             };
         }
     }
@@ -122,7 +149,8 @@ function parseAudioValue(value) {
         !filename ||
         filename === "[object Object]" ||
         filename === "undefined" ||
-        filename === "null"
+        filename === "null" ||
+        filename === "none"
     ) {
         return null;
     }
@@ -201,13 +229,27 @@ app.registerExtension({
             const isVueMode = () =>
                 typeof LiteGraph !== "undefined" && !!LiteGraph.vueNodesMode;
 
-            // Suppress default background preview canvas & observe value updates
-            node.onDrawBackground = function (_ctx) {
-                if (audioWidget && audioWidget.value !== lastAudioVal) {
-                    lastAudioVal = audioWidget.value;
-                    loadAudioFile();
+            function hideAudioUIWidget() {
+                const audioUIWidget = node.widgets?.find(
+                    (w) => w.name === "audioUI",
+                );
+                if (audioUIWidget) {
+                    audioUIWidget.hidden = true;
+                    audioUIWidget.options = audioUIWidget.options || {};
+                    audioUIWidget.options.hidden = true;
+                    if (audioUIWidget.element) {
+                        audioUIWidget.element.style.display = "none";
+                        if (
+                            audioUIWidget.element.parentElement &&
+                            audioUIWidget.element.parentElement !== node.element
+                        ) {
+                            audioUIWidget.element.parentElement.style.display =
+                                "none";
+                        }
+                    }
+                    audioUIWidget.computeSize = () => [0, -4];
                 }
-            };
+            }
 
             const audioWidget = node.widgets?.find((w) => w.name === "audio");
             const startWidget = node.widgets?.find(
@@ -215,26 +257,19 @@ app.registerExtension({
             );
             const endWidget = node.widgets?.find((w) => w.name === "end_time");
 
-            // Hide stock audioUI widget
-            const audioUIWidget = node.widgets?.find(
-                (w) => w.name === "audioUI",
-            );
-            if (audioUIWidget) {
-                audioUIWidget.hidden = true;
-                audioUIWidget.options = audioUIWidget.options || {};
-                audioUIWidget.options.hidden = true;
-                if (audioUIWidget.element) {
-                    audioUIWidget.element.style.display = "none";
-                    if (
-                        audioUIWidget.element.parentElement &&
-                        audioUIWidget.element.parentElement !== node.element
-                    ) {
-                        audioUIWidget.element.parentElement.style.display =
-                            "none";
+            // Suppress default background preview canvas & observe value updates
+            node.onDrawBackground = function (_ctx) {
+                hideAudioUIWidget();
+                const cur = audioWidget?.value;
+                if (cur) {
+                    if (cur !== lastAudioVal || (!state.audioBuffer && !state.loading && !state.error)) {
+                        lastAudioVal = cur;
+                        loadAudioFile();
                     }
                 }
-                audioUIWidget.computeSize = () => [0, -4];
-            }
+            };
+
+            hideAudioUIWidget();
 
             const state = {
                 audioBuffer: null,
@@ -251,7 +286,8 @@ app.registerExtension({
                 animId: null,
                 drag: null, // { mode: "seeker" | "start" | "end" | "move", ... }
                 seekerBox: null, // { bx, by, bw, bh } for seeker waveform area
-                lastLoadedUrl: null,
+                loadedUrl: null, // URL that was successfully fetched and decoded
+                loadingUrl: null, // URL currently being fetched/decoded
                 hoverBtn: null,
                 transportBtns: [],
                 helpHovered: false,
@@ -264,12 +300,14 @@ app.registerExtension({
                     Math.round(Number(startWidget?.value) || 0),
                 );
                 let e = Math.round(Number(endWidget?.value) || 0);
-                if (e <= 0 || e > total) {
-                    e = total;
+                if (total > 0) {
+                    if (e <= 0 || e > total) {
+                        e = total;
+                    }
+                    if (s > e) s = 0;
                 }
-                if (s > e) s = 0;
                 const isCropped =
-                    s > 0 || (e > 0 && Math.abs(e - total) >= 0.5);
+                    s > 0 || (total > 0 && e > 0 && Math.abs(e - total) >= 0.5);
                 return { start: s, end: e, isCropped };
             }
 
@@ -396,27 +434,27 @@ app.registerExtension({
 
             let loadSeq = 0;
             async function loadAudioFile(forceRefresh = false) {
-                stopAudio();
-                const seq = ++loadSeq;
                 const info = parseAudioValue(audioWidget?.value);
                 if (!info) {
+                    stopAudio(true);
                     state.audioBuffer = null;
                     state.peaks = null;
                     state.duration = 0;
                     state.loading = false;
                     state.error = null;
-                    state.lastLoadedUrl = null;
+                    state.loadedUrl = null;
+                    state.loadingUrl = null;
                     state.seekerCurrentTime = 0;
                     node.setDirtyCanvas(true, true);
                     return;
                 }
 
-                if (info) info.type = clampViewType(info.type);
+                info.type = clampViewType(info.type);
                 if (
-                    !info ||
                     !isSafeViewPath(info.filename) ||
                     !isSafeViewPath(info.subfolder)
                 ) {
+                    stopAudio(true);
                     console.error(
                         "[reference-loader] unsafe /view path, skipping:",
                         info?.filename,
@@ -427,30 +465,53 @@ app.registerExtension({
                     state.duration = 0;
                     state.loading = false;
                     state.error = "Unsafe file path";
-                    state.lastLoadedUrl = null;
+                    state.loadedUrl = null;
+                    state.loadingUrl = null;
                     node.setDirtyCanvas(true, true);
                     return;
                 }
-                const baseUrl = api.apiURL(
-                    `/view?filename=${encodeURIComponent(info.filename)}` +
-                        `&type=${info.type}&subfolder=${encodeURIComponent(info.subfolder)}`,
-                );
+
+                let baseUrl;
+                const q = new URLSearchParams({
+                    filename: info.filename,
+                    type: info.type || "input",
+                    subfolder: info.subfolder || "",
+                });
+                if (typeof api !== "undefined" && api.apiURL) {
+                    try {
+                        baseUrl = api.apiURL(`/view?${q}`);
+                    } catch {}
+                }
+                if (!baseUrl) {
+                    baseUrl = `/view?${q}`;
+                }
+
+                // If already loaded and active in memory and not forcing refresh, skip
+                if (!forceRefresh && state.audioBuffer && state.loadedUrl === baseUrl) {
+                    const { start } = getCropTimes();
+                    if (state.seekerCurrentTime < start) {
+                        state.seekerCurrentTime = start;
+                    }
+                    node.setDirtyCanvas(true, true);
+                    return;
+                }
+
+                // If already in flight for this exact URL, do not cancel or duplicate
+                if (!forceRefresh && state.loading && state.loadingUrl === baseUrl) {
+                    return;
+                }
+
+                stopAudio(false);
+                const seq = ++loadSeq;
+                state.loading = true;
+                state.loadingUrl = baseUrl;
+                state.loadedUrl = null;
+                state.error = null;
+                node.setDirtyCanvas(true, true);
+
                 const url = forceRefresh
                     ? `${baseUrl}&rand=${Date.now()}`
                     : baseUrl;
-
-                if (
-                    !forceRefresh &&
-                    state.lastLoadedUrl === baseUrl
-                ) {
-                    node.setDirtyCanvas(true, true);
-                    return;
-                }
-
-                state.loading = true;
-                state.error = null;
-                state.lastLoadedUrl = baseUrl;
-                node.setDirtyCanvas(true, true);
 
                 try {
                     const res = await fetch(url);
@@ -461,26 +522,36 @@ app.registerExtension({
                     const ctx = getAudioContext();
                     if (!ctx) throw new Error("Web Audio API not supported");
 
-                    const decoded = await ctx.decodeAudioData(
-                        arrayBuffer.slice(0),
+                    const decoded = await decodeAudioDataSafe(
+                        ctx,
+                        arrayBuffer,
                     );
                     if (seq !== loadSeq) return;
 
                     state.audioBuffer = decoded;
-                    state.duration = decoded.duration;
+                    state.duration = decoded.duration || 0;
                     state.peaks = computePeaks(decoded, 200);
+                    state.loadedUrl = baseUrl;
+                    state.loadingUrl = null;
                     state.loading = false;
                     state.error = null;
+                    const startVal = Number(startWidget?.value) || 0;
                     state.seekerCurrentTime = Math.max(
                         0,
-                        Number(startWidget?.value) || 0,
+                        Math.min(state.duration, startVal),
                     );
                     node.setDirtyCanvas(true, true);
                 } catch (err) {
                     if (seq !== loadSeq) return;
+                    console.warn(
+                        "[reference-loader] LoadAudioCrop: could not decode audio:",
+                        err,
+                    );
                     state.audioBuffer = null;
                     state.peaks = null;
                     state.duration = 0;
+                    state.loadedUrl = null;
+                    state.loadingUrl = null;
                     state.loading = false;
                     state.error = "Could not decode audio";
                     state.seekerCurrentTime = 0;
@@ -511,7 +582,7 @@ app.registerExtension({
                                     internalVal = v;
                                 }
                                 if (
-                                    audioWidget.options?.values &&
+                                    Array.isArray(audioWidget.options?.values) &&
                                     !audioWidget.options.values.includes(v)
                                 ) {
                                     audioWidget.options.values.push(v);
@@ -544,18 +615,70 @@ app.registerExtension({
             }
 
             const origOnConfigure = node.onConfigure;
-            node.onConfigure = function () {
+            node.onConfigure = function (info) {
                 node._was_configured = true;
                 const ret = origOnConfigure?.apply(this, arguments);
+
+                hideAudioUIWidget();
+                requestAnimationFrame(hideAudioUIWidget);
+
+                // Preserve background preview suppression and self-healing
+                node.onDrawBackground = function (_ctx) {
+                    hideAudioUIWidget();
+                    const cur = audioWidget?.value;
+                    if (cur) {
+                        if (
+                            cur !== lastAudioVal ||
+                            (!state.audioBuffer &&
+                                !state.loading &&
+                                !state.error)
+                        ) {
+                            lastAudioVal = cur;
+                            loadAudioFile();
+                        }
+                    }
+                };
+
+                const savedVal =
+                    audioWidget?.value || info?.widgets_values?.[0];
+                if (savedVal) {
+                    if (
+                        Array.isArray(audioWidget?.options?.values) &&
+                        !audioWidget.options.values.includes(savedVal)
+                    ) {
+                        audioWidget.options.values.push(savedVal);
+                    }
+                    lastAudioVal = savedVal;
+                    if (audioWidget && audioWidget.value !== savedVal) {
+                        audioWidget.value = savedVal;
+                    }
+                    loadAudioFile(false);
+                }
+
                 if (startWidget) {
                     state.seekerCurrentTime = Math.max(
                         0,
                         Number(startWidget.value) || 0,
                     );
                 }
-                if (audioWidget?.value) {
-                    lastAudioVal = audioWidget.value;
-                    loadAudioFile(false);
+                return ret;
+            };
+
+            const origOnGraphConfigured = node.onGraphConfigured;
+            node.onGraphConfigured = function () {
+                const ret = origOnGraphConfigured?.apply(this, arguments);
+                hideAudioUIWidget();
+                const cur = audioWidget?.value;
+                if (cur) {
+                    if (
+                        cur !== lastAudioVal ||
+                        (!state.audioBuffer &&
+                            !state.loading &&
+                            !state.error)
+                    ) {
+                        lastAudioVal = cur;
+                        loadAudioFile(false);
+                    }
                 }
                 return ret;
             };
@@ -653,9 +776,18 @@ app.registerExtension({
                 },
 
                 draw: function (ctx, _node, widgetWidth, y, H, lowQuality) {
-                    if (audioWidget && audioWidget.value !== lastAudioVal) {
-                        lastAudioVal = audioWidget.value;
-                        loadAudioFile();
+                    hideAudioUIWidget();
+                    const curAudio = audioWidget?.value;
+                    if (curAudio) {
+                        if (
+                            curAudio !== lastAudioVal ||
+                            (!state.audioBuffer &&
+                                !state.loading &&
+                                !state.error)
+                        ) {
+                            lastAudioVal = curAudio;
+                            loadAudioFile();
+                        }
                     }
                     const effWidth = _node?.size?.[0]
                         ? Math.min(widgetWidth, _node.size[0])
@@ -1113,6 +1245,13 @@ app.registerExtension({
                             py >= by &&
                             py <= by + bh
                         ) {
+                            if (state.error) {
+                                loadAudioFile(true);
+                                return true;
+                            }
+                            if (totalDur <= 0 || !state.audioBuffer) {
+                                return true;
+                            }
                             if (
                                 isCropped &&
                                 Math.abs(px - cropPxStart) <= handleHitRadius

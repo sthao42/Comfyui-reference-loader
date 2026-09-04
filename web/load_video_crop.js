@@ -252,6 +252,10 @@ app.registerExtension({
                 ) {
                     cleanStockPreviewWidgets();
                 }
+                if (videoWidget && videoWidget.value !== lastVideoVal) {
+                    lastVideoVal = videoWidget.value;
+                    loadVideo(lastVideoVal);
+                }
             };
             // Assign properties but prevent Vue mode from forcing Media Card layout
             if (!isVueMode()) {
@@ -1014,32 +1018,36 @@ app.registerExtension({
                     videoWidget,
                     "value",
                 );
-                Object.defineProperty(videoWidget, "value", {
-                    get() {
-                        return valProp && valProp.get
-                            ? valProp.get.call(videoWidget)
-                            : internalVal;
-                    },
-                    set(v) {
-                        if (valProp && valProp.set) {
-                            valProp.set.call(videoWidget, v);
-                        } else {
-                            internalVal = v;
-                        }
-                        if (
-                            videoWidget.options?.values &&
-                            !videoWidget.options.values.includes(v)
-                        ) {
-                            videoWidget.options.values.push(v);
-                        }
-                        if (v !== lastVideoVal) {
-                            lastVideoVal = v;
-                            loadVideo(v);
-                        }
-                    },
-                    configurable: true,
-                    enumerable: true,
-                });
+                if (!valProp || valProp.configurable !== false) {
+                    try {
+                        Object.defineProperty(videoWidget, "value", {
+                            get() {
+                                return valProp && valProp.get
+                                    ? valProp.get.call(videoWidget)
+                                    : internalVal;
+                            },
+                            set(v) {
+                                if (valProp && valProp.set) {
+                                    valProp.set.call(videoWidget, v);
+                                } else {
+                                    internalVal = v;
+                                }
+                                if (
+                                    videoWidget.options?.values &&
+                                    !videoWidget.options.values.includes(v)
+                                ) {
+                                    videoWidget.options.values.push(v);
+                                }
+                                if (v !== lastVideoVal) {
+                                    lastVideoVal = v;
+                                    loadVideo(v);
+                                }
+                            },
+                            configurable: true,
+                            enumerable: true,
+                        });
+                    } catch (e) {}
+                }
 
                 const origCb = videoWidget.callback;
                 videoWidget.callback = function (v) {
@@ -1240,6 +1248,10 @@ app.registerExtension({
                 },
 
                 draw(ctx, node, widgetWidth, y, _widgetHeight) {
+                    if (videoWidget && videoWidget.value !== lastVideoVal) {
+                        lastVideoVal = videoWidget.value;
+                        loadVideo(lastVideoVal);
+                    }
                     const nw = node?.size?.[0] || widgetWidth || MIN_NODE_WIDTH;
                     const effWidth = !isVueMode() && nw ? Math.min(widgetWidth, nw) : widgetWidth;
                     state.lastDrawW = effWidth;
@@ -1334,15 +1346,23 @@ app.registerExtension({
             // falls back to computeSize with the card's real CSS width.
             {
                 let storedHeight;
-                Object.defineProperty(customWidget, "computedHeight", {
-                    configurable: true,
-                    get() {
-                        return isVueMode() ? undefined : storedHeight;
-                    },
-                    set(v) {
-                        storedHeight = v;
-                    },
-                });
+                try {
+                    const chProp = Object.getOwnPropertyDescriptor(
+                        customWidget,
+                        "computedHeight",
+                    );
+                    if (!chProp || chProp.configurable !== false) {
+                        Object.defineProperty(customWidget, "computedHeight", {
+                            configurable: true,
+                            get() {
+                                return isVueMode() ? undefined : storedHeight;
+                            },
+                            set(v) {
+                                storedHeight = v;
+                            },
+                        });
+                    }
+                } catch (e) {}
             }
 
             // Draw Top Monitor Canvas with Interactive Crop Box

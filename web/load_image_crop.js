@@ -208,6 +208,20 @@ app.registerExtension({
                 ) {
                     cleanStockPreviewWidgets();
                 }
+                if (imageWidget && imageWidget.value !== lastImageVal) {
+                    if (!node.isUploading) {
+                        const curVal = imageWidget.value;
+                        lastImageVal = curVal;
+                        const isMaskVersion =
+                            typeof curVal === "string" &&
+                            curVal.includes("clipspace-painted-masked-");
+                        if (!isMaskVersion) {
+                            state.rect = null;
+                            syncCrop();
+                        }
+                        loadImage(false, isMaskVersion);
+                    }
+                }
             };
 
             // Intercept widget additions to reject stock preview widgets
@@ -526,6 +540,20 @@ app.registerExtension({
                     ) {
                         requestAnimationFrame(cleanStockPreviewWidgets);
                         node.setDirtyCanvas(true);
+                    }
+                    if (imageWidget && imageWidget.value !== lastImageVal) {
+                        if (!node.isUploading) {
+                            const curVal = imageWidget.value;
+                            lastImageVal = curVal;
+                            const isMaskVersion =
+                                typeof curVal === "string" &&
+                                curVal.includes("clipspace-painted-masked-");
+                            if (!isMaskVersion) {
+                                state.rect = null;
+                                syncCrop();
+                            }
+                            loadImage(false, isMaskVersion);
+                        }
                     }
                     const u = ui();
                     const h = (this.computedHeight ?? H) - 8;
@@ -992,15 +1020,23 @@ app.registerExtension({
             // falls back to computeSize with the card's real CSS width.
             {
                 let storedHeight;
-                Object.defineProperty(editorWidget, "computedHeight", {
-                    configurable: true,
-                    get() {
-                        return isVueMode() ? undefined : storedHeight;
-                    },
-                    set(v) {
-                        storedHeight = v;
-                    },
-                });
+                try {
+                    const chProp = Object.getOwnPropertyDescriptor(
+                        editorWidget,
+                        "computedHeight",
+                    );
+                    if (!chProp || chProp.configurable !== false) {
+                        Object.defineProperty(editorWidget, "computedHeight", {
+                            configurable: true,
+                            get() {
+                                return isVueMode() ? undefined : storedHeight;
+                            },
+                            set(v) {
+                                storedHeight = v;
+                            },
+                        });
+                    }
+                } catch (e) {}
             }
 
             const mpWidget = node.widgets?.find(
@@ -1150,44 +1186,50 @@ app.registerExtension({
                     "value",
                 );
                 let internalVal = imageWidget.value;
-                Object.defineProperty(imageWidget, "value", {
-                    get() {
-                        return valProp && valProp.get
-                            ? valProp.get.call(imageWidget)
-                            : internalVal;
-                    },
-                    set(v) {
-                        if (valProp && valProp.set) {
-                            valProp.set.call(imageWidget, v);
-                        } else {
-                            internalVal = v;
-                        }
-                        if (
-                            imageWidget.options?.values &&
-                            !imageWidget.options.values.includes(v)
-                        ) {
-                            imageWidget.options.values.push(v);
-                        }
-                        if (node.isUploading) {
-                            // During onUploadStart, ComfyUI sets imageWidget.value before the upload completes.
-                            // Defer loading until onUploadComplete triggers callback.
-                            return;
-                        }
-                        if (v !== lastImageVal) {
-                            lastImageVal = v;
-                            const isMaskVersion =
-                                typeof v === "string" &&
-                                v.includes("clipspace-painted-masked-");
-                            if (!isMaskVersion) {
-                                state.rect = null;
-                                syncCrop();
-                            }
-                            loadImage(false, isMaskVersion);
-                        }
-                    },
-                    configurable: true,
-                    enumerable: true,
-                });
+                if (!valProp || valProp.configurable !== false) {
+                    try {
+                        Object.defineProperty(imageWidget, "value", {
+                            get() {
+                                return valProp && valProp.get
+                                    ? valProp.get.call(imageWidget)
+                                    : internalVal;
+                            },
+                            set(v) {
+                                if (valProp && valProp.set) {
+                                    valProp.set.call(imageWidget, v);
+                                } else {
+                                    internalVal = v;
+                                }
+                                if (
+                                    imageWidget.options?.values &&
+                                    !imageWidget.options.values.includes(v)
+                                ) {
+                                    imageWidget.options.values.push(v);
+                                }
+                                if (node.isUploading) {
+                                    // During onUploadStart, ComfyUI sets imageWidget.value before the upload completes.
+                                    // Defer loading until onUploadComplete triggers callback.
+                                    return;
+                                }
+                                if (v !== lastImageVal) {
+                                    lastImageVal = v;
+                                    const isMaskVersion =
+                                        typeof v === "string" &&
+                                        v.includes("clipspace-painted-masked-");
+                                    if (!isMaskVersion) {
+                                        state.rect = null;
+                                        syncCrop();
+                                    }
+                                    loadImage(false, isMaskVersion);
+                                }
+                            },
+                            configurable: true,
+                            enumerable: true,
+                        });
+                    } catch (e) {
+                        dbg("Could not redefine imageWidget.value property:", e);
+                    }
+                }
 
                 const prevCallback = imageWidget.callback;
                 imageWidget.callback = function () {

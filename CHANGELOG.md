@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-04
+
+### Fixed
+- **Double Image Preview**: Suppressed duplicate preview rendering in `LoadImageCrop` by intercepting preview widget injections, preventing `node.imgs` assignment races, and purging stock preview widgets across all lifecycle events.
+- **ReferenceError TDZ Bug**: Pre-declared `editorWidget` in `LoadImageCrop` to prevent `ReferenceError: Cannot access 'editorWidget' before initialization` during graph loading and configure.
+- **Non-Configurable Widget Values**: Prevented `TypeError: Cannot redefine property: value` across `LoadImageCrop`, `LoadVideoCrop`, and `LoadAudioCrop` when running in modern ComfyUI frontends (Node 2.0 Vue mode).
+- **Dual-Mode Value Sync**: Added render-loop value synchronization across both Classic LiteGraph canvas and Node 2.0 Vue views for direct external widget value modifications.
+- **Context Menu Actions**: Added "Open Image", "Copy Image", "Save Image", and "Open in MaskEditor | Image Canvas" options to `LoadImageCrop`.
+
+---
+
 ## [1.1.0] - 2026-09-02
 
 ### Added

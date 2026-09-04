@@ -201,8 +201,13 @@ app.registerExtension({
             const isVueMode = () =>
                 typeof LiteGraph !== "undefined" && !!LiteGraph.vueNodesMode;
 
-            // Suppress default background preview canvas
-            node.onDrawBackground = function (_ctx) {};
+            // Suppress default background preview canvas & observe value updates
+            node.onDrawBackground = function (_ctx) {
+                if (audioWidget && audioWidget.value !== lastAudioVal) {
+                    lastAudioVal = audioWidget.value;
+                    loadAudioFile();
+                }
+            };
 
             const audioWidget = node.widgets?.find((w) => w.name === "audio");
             const startWidget = node.widgets?.find(
@@ -491,32 +496,36 @@ app.registerExtension({
                     audioWidget,
                     "value",
                 );
-                Object.defineProperty(audioWidget, "value", {
-                    get() {
-                        return valProp && valProp.get
-                            ? valProp.get.call(audioWidget)
-                            : internalVal;
-                    },
-                    set(v) {
-                        if (valProp && valProp.set) {
-                            valProp.set.call(audioWidget, v);
-                        } else {
-                            internalVal = v;
-                        }
-                        if (
-                            audioWidget.options?.values &&
-                            !audioWidget.options.values.includes(v)
-                        ) {
-                            audioWidget.options.values.push(v);
-                        }
-                        if (v !== lastAudioVal) {
-                            lastAudioVal = v;
-                            loadAudioFile();
-                        }
-                    },
-                    configurable: true,
-                    enumerable: true,
-                });
+                if (!valProp || valProp.configurable !== false) {
+                    try {
+                        Object.defineProperty(audioWidget, "value", {
+                            get() {
+                                return valProp && valProp.get
+                                    ? valProp.get.call(audioWidget)
+                                    : internalVal;
+                            },
+                            set(v) {
+                                if (valProp && valProp.set) {
+                                    valProp.set.call(audioWidget, v);
+                                } else {
+                                    internalVal = v;
+                                }
+                                if (
+                                    audioWidget.options?.values &&
+                                    !audioWidget.options.values.includes(v)
+                                ) {
+                                    audioWidget.options.values.push(v);
+                                }
+                                if (v !== lastAudioVal) {
+                                    lastAudioVal = v;
+                                    loadAudioFile();
+                                }
+                            },
+                            configurable: true,
+                            enumerable: true,
+                        });
+                    } catch (e) {}
+                }
 
                 const origCb = audioWidget.callback;
                 audioWidget.callback = function (v) {
@@ -644,6 +653,10 @@ app.registerExtension({
                 },
 
                 draw: function (ctx, _node, widgetWidth, y, H, lowQuality) {
+                    if (audioWidget && audioWidget.value !== lastAudioVal) {
+                        lastAudioVal = audioWidget.value;
+                        loadAudioFile();
+                    }
                     const effWidth = _node?.size?.[0]
                         ? Math.min(widgetWidth, _node.size[0])
                         : widgetWidth;
@@ -1579,15 +1592,23 @@ app.registerExtension({
             // falls back to computeSize with the card's real CSS width.
             {
                 let storedHeight;
-                Object.defineProperty(waveformWidget, "computedHeight", {
-                    configurable: true,
-                    get() {
-                        return isVueMode() ? undefined : storedHeight;
-                    },
-                    set(v) {
-                        storedHeight = v;
-                    },
-                });
+                try {
+                    const chProp = Object.getOwnPropertyDescriptor(
+                        waveformWidget,
+                        "computedHeight",
+                    );
+                    if (!chProp || chProp.configurable !== false) {
+                        Object.defineProperty(waveformWidget, "computedHeight", {
+                            configurable: true,
+                            get() {
+                                return isVueMode() ? undefined : storedHeight;
+                            },
+                            set(v) {
+                                storedHeight = v;
+                            },
+                        });
+                    }
+                } catch (e) {}
             }
 
             // Ensure any setDirtyCanvas triggers Vue widget redraw when in Vue mode

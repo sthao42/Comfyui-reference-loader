@@ -6,7 +6,7 @@ const HANDLE_RADIUS = 7;
 const WIDGET_HEIGHT = 160;
 const HEADER_H = 22;
 const MIN_NODE_WIDTH = 380;
-const MIN_NODE_HEIGHT = 240;
+const MIN_NODE_HEIGHT = 280;
 const RESIZE_CORNER_SIZE = 20;
 
 const C = {
@@ -755,13 +755,6 @@ app.registerExtension({
                 serialize: false,
                 options: { serialize: false },
 
-                computeSize: function (width) {
-                    return [
-                        Math.max(width || 0, MIN_NODE_WIDTH),
-                        WIDGET_HEIGHT,
-                    ];
-                },
-
                 computeLayoutSize: function (_n) {
                     if (isVueMode()) {
                         const w = state.lastDrawW || (_n?.size?.[0] ?? MIN_NODE_WIDTH);
@@ -781,6 +774,7 @@ app.registerExtension({
                 draw: function (ctx, _node, widgetWidth, y, H, lowQuality) {
                     if (isVueMode()) {
                         syncVueHelpUI(node, state);
+                        syncVueNodeLayout(ctx, node);
                     }
                     hideAudioUIWidget();
                     const curAudio = audioWidget?.value;
@@ -795,13 +789,16 @@ app.registerExtension({
                             loadAudioFile();
                         }
                     }
-                    const effWidth = _node?.size?.[0]
-                        ? Math.min(widgetWidth, _node.size[0])
+                    const nh = _node?.size?.[1] || 0;
+                    const effWidth = !isVueMode()
+                        ? (_node?.size?.[0] || widgetWidth || MIN_NODE_WIDTH)
                         : widgetWidth;
                     state.lastDrawW = effWidth;
                     const w = Math.max(20, effWidth - MARGIN * 2);
                     const x = MARGIN;
-                    const actualH = isVueMode() ? (this.computedHeight ?? H) : (this.computedHeight ?? H);
+                    const actualH = isVueMode()
+                        ? (this.computedHeight ?? H)
+                        : Math.max(WIDGET_HEIGHT, nh - y - MARGIN);
                     const h = Math.max(130, actualH - 6);
 
                     ctx.save();
@@ -1590,6 +1587,68 @@ app.registerExtension({
                 }
             }
 
+            // ─── Vue (Nodes 2.0) Layout & Centering Synchronizer ───
+            function syncVueNodeLayout(ctx, node) {
+                if (!isVueMode()) return;
+                const canvas = ctx?.canvas;
+                if (!canvas) return;
+                const canvasContainer = canvas.parentElement;
+                if (!canvasContainer) return;
+                const body =
+                    canvas.closest?.('[data-testid^="node-body"]') ||
+                    canvas.closest?.(".lg-node-body");
+                if (!body) return;
+
+                const widgetsDiv =
+                    canvasContainer.closest?.('[data-testid="node-widgets"]') ||
+                    canvasContainer.closest?.(".lg-node-widgets");
+                const slotsDiv =
+                    body.querySelector?.(":scope > .flex.min-w-0.justify-between") ||
+                    body.querySelector?.(":scope > div:has(.lg-slot--output)");
+
+                // 1. Output sockets and their text in their own bottom div
+                if (slotsDiv) {
+                    slotsDiv.style.order = "10";
+                    slotsDiv.style.marginTop = "auto";
+                    slotsDiv.style.flexShrink = "0";
+                    slotsDiv.style.width = "100%";
+                    slotsDiv.style.display = "flex";
+                    slotsDiv.style.flexDirection = "column";
+                    slotsDiv.style.alignItems = "flex-end";
+                    slotsDiv.style.padding = "4px 8px 6px 8px";
+                    slotsDiv.style.boxSizing = "border-box";
+                    slotsDiv.style.zIndex = "5";
+
+                    const innerSlots =
+                        slotsDiv.querySelector?.(".flex.min-w-0.flex-col") ||
+                        slotsDiv;
+                    if (innerSlots && innerSlots !== slotsDiv) {
+                        innerSlots.style.alignItems = "flex-end";
+                        innerSlots.style.width = "100%";
+                    }
+                }
+
+                // 2. Widgets container flex
+                if (widgetsDiv) {
+                    widgetsDiv.style.flex = "1 1 0%";
+                    widgetsDiv.style.minHeight = "0";
+                }
+
+                // 3. Canvas container & vertical centering
+                canvasContainer.style.display = "flex";
+                canvasContainer.style.flexDirection = "column";
+                canvasContainer.style.justifyContent = "center";
+                canvasContainer.style.alignItems = "center";
+                canvasContainer.style.overflow = "hidden";
+                canvasContainer.style.flex = "1 1 0%";
+                canvasContainer.style.minHeight = "0";
+                canvasContainer.style.boxSizing = "border-box";
+
+                canvas.style.position = "relative";
+                canvas.style.margin = "auto 0";
+                canvas.style.top = "0px";
+            }
+
             // Outside click & Escape handlers
             const onGlobalPointerDown = (e) => {
                 if (!state.helpOpen) return;
@@ -2069,8 +2128,10 @@ app.registerExtension({
             // over computeSize — but computedHeight is a stale graph-units
             // value from the canvas-mode layout. Hide it there so the mirror
             // falls back to computeSize with the card's real CSS width.
+            // In Classic mode, subtract RESIZE_CORNER_SIZE so the bottom-right
+            // corner triangle is completely freed for LiteGraph node resizing.
             {
-                let storedHeight;
+                let allocHeight;
                 try {
                     const chProp = Object.getOwnPropertyDescriptor(
                         waveformWidget,
@@ -2080,11 +2141,36 @@ app.registerExtension({
                         Object.defineProperty(waveformWidget, "computedHeight", {
                             configurable: true,
                             get() {
-                                return isVueMode() ? undefined : storedHeight;
+                                if (isVueMode() || allocHeight == null) return undefined;
+                                const nh = node?.size?.[1];
+                                const box =
+                                    nh != null && this.y != null
+                                        ? Math.max(WIDGET_HEIGHT, nh - this.y)
+                                        : allocHeight;
+                                return Math.max(0, box - RESIZE_CORNER_SIZE);
                             },
                             set(v) {
-                                storedHeight = v;
+                                allocHeight = v;
                             },
+                        });
+                    }
+                } catch (e) {}
+            }
+
+            // In Vue mode WidgetLegacy sets widget.width on the widget object,
+            // which in Classic mode causes LiteGraph's drawWidgets to pass a stale width.
+            // Shield it: reads yield undefined so the live node.size[0] fallback always wins.
+            {
+                try {
+                    const wProp = Object.getOwnPropertyDescriptor(
+                        waveformWidget,
+                        "width",
+                    );
+                    if (!wProp || wProp.configurable !== false) {
+                        Object.defineProperty(waveformWidget, "width", {
+                            configurable: true,
+                            get: () => undefined,
+                            set: () => {},
                         });
                     }
                 } catch (e) {}
@@ -2107,22 +2193,6 @@ app.registerExtension({
             };
 
             node.addCustomWidget(waveformWidget);
-
-            // Ensure node computeSize enforces min width and height
-            const prevComputeSize = node.computeSize;
-            node.computeSize = function (out) {
-                const min = prevComputeSize
-                    ? prevComputeSize.apply(this, arguments)
-                    : [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
-                const w = Math.max(min?.[0] || 0, MIN_NODE_WIDTH);
-                const h = Math.max(min?.[1] || 0, MIN_NODE_HEIGHT);
-                if (out) {
-                    out[0] = w;
-                    out[1] = h;
-                    return out;
-                }
-                return [w, h];
-            };
 
             return result;
         };

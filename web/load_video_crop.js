@@ -426,6 +426,9 @@ app.registerExtension({
                 hoverBtn: null,
                 transportBtns: [],
                 helpHovered: false,
+                helpBadgeHovered: false,
+                helpOpen: false,
+                closeHovered: false,
             };
 
             // Restore saved crop from widget
@@ -1248,6 +1251,9 @@ app.registerExtension({
                 },
 
                 draw(ctx, node, widgetWidth, y, _widgetHeight) {
+                    if (isVueMode()) {
+                        syncVueHelpUI(node, state);
+                    }
                     if (videoWidget && videoWidget.value !== lastVideoVal) {
                         lastVideoVal = videoWidget.value;
                         loadVideo(lastVideoVal);
@@ -1946,6 +1952,8 @@ app.registerExtension({
                 if (
                     app?.canvas?.node_over === node ||
                     state.helpHovered ||
+                    state.helpBadgeHovered ||
+                    state.helpOpen ||
                     state.hoverBtn
                 ) {
                     return true;
@@ -2497,17 +2505,321 @@ app.registerExtension({
             };
 
             // Hook node mouse handlers as fallbacks
+            // ─── Vue (Nodes 2.0) Help Button & Popup DOM Mirror ───
+            function syncVueHelpUI(node, state) {
+                if (!isVueMode()) return;
+                const nodeEl =
+                    document.querySelector(`[data-node-id="${node.id}"]`) ||
+                    (customWidget?.element?.closest?.("[data-node-id]"));
+                if (!nodeEl) return;
+
+                const isCollapsed = !!(node.flags?.collapsed || nodeEl.dataset.collapsed);
+
+                // 1. Help Button (?)
+                let btn = nodeEl.querySelector(":scope > .cui-ref-help-btn");
+                if (!btn) {
+                    btn = document.createElement("button");
+                    btn.type = "button";
+                    btn.className = "cui-ref-help-btn";
+                    btn.textContent = "?";
+                    btn.title = "View Video Loader & Timeline Guide";
+                    Object.assign(btn.style, {
+                        position: "absolute",
+                        top: "6px",
+                        right: "8px",
+                        width: "18px",
+                        height: "18px",
+                        borderRadius: "50%",
+                        background: "rgba(255, 255, 255, 0.15)",
+                        border: "1px solid rgba(255, 255, 255, 0.35)",
+                        color: "#ffffff",
+                        fontSize: "11px",
+                        fontWeight: "bold",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        zIndex: "60",
+                        padding: "0",
+                        lineHeight: "1",
+                        boxSizing: "border-box",
+                        transition: "background 0.15s, border-color 0.15s, color 0.15s",
+                        userSelect: "none",
+                        outline: "none",
+                    });
+
+                    btn.addEventListener("mouseenter", () => {
+                        btn.style.background = C.accent;
+                        btn.style.borderColor = C.accentGlow;
+                        btn.style.color = "#000000";
+                    });
+                    btn.addEventListener("mouseleave", () => {
+                        if (!state.helpOpen) {
+                            btn.style.background = "rgba(255, 255, 255, 0.15)";
+                            btn.style.borderColor = "rgba(255, 255, 255, 0.35)";
+                            btn.style.color = "#ffffff";
+                        }
+                    });
+
+                    btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+                    btn.addEventListener("mousedown", (e) => e.stopPropagation());
+                    btn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        state.helpOpen = !state.helpOpen;
+                        syncVueHelpUI(node, state);
+                    });
+
+                    nodeEl.appendChild(btn);
+                }
+
+                btn.style.display = isCollapsed ? "none" : "flex";
+                if (state.helpOpen) {
+                    btn.style.background = C.accent;
+                    btn.style.borderColor = C.accentGlow;
+                    btn.style.color = "#000000";
+                } else {
+                    btn.style.background = "rgba(255, 255, 255, 0.15)";
+                    btn.style.borderColor = "rgba(255, 255, 255, 0.35)";
+                    btn.style.color = "#ffffff";
+                }
+
+                // 2. Guide Context Window Popup
+                let popup = nodeEl.querySelector(":scope > .cui-ref-guide-popup");
+                if (!popup) {
+                    popup = document.createElement("div");
+                    popup.className = "cui-ref-guide-popup";
+                    Object.assign(popup.style, {
+                        position: "absolute",
+                        left: "calc(100% + 12px)",
+                        top: "0px",
+                        width: "360px",
+                        background: "rgba(18, 22, 30, 0.98)",
+                        border: `1.5px solid ${C.accent}`,
+                        borderRadius: "8px",
+                        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.7)",
+                        zIndex: "1000",
+                        color: "#dbe2ef",
+                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                        fontSize: "11px",
+                        lineHeight: "1.4",
+                        overflow: "hidden",
+                        pointerEvents: "auto",
+                        userSelect: "none",
+                        boxSizing: "border-box",
+                    });
+
+                    popup.addEventListener("pointerdown", (e) => e.stopPropagation());
+                    popup.addEventListener("mousedown", (e) => e.stopPropagation());
+                    popup.addEventListener("wheel", (e) => e.stopPropagation());
+
+                    popup.innerHTML = `
+                        <div style="background: rgba(74, 180, 255, 0.12); border-bottom: 1px solid rgba(74, 180, 255, 0.3); padding: 7px 12px; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-weight: bold; font-size: 11px; color: #4ab4ff; letter-spacing: 0.5px;">VIDEO LOADER &amp; TIMELINE SHORTCUTS</span>
+                            <button type="button" class="cui-ref-popup-close" style="background: none; border: none; color: #94a3b8; font-size: 14px; cursor: pointer; padding: 0 4px; line-height: 1; outline: none;">✕</button>
+                        </div>
+                        <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; color: #dbe2ef; font-size: 10.5px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">Space</span>
+                                <span>Play / Pause video playback</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">← / → / [ / ]</span>
+                                <span>Step backward / forward 1 frame</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">I</span>
+                                <span>Set In-point trim start</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">O</span>
+                                <span>Set Out-point trim end</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">M</span>
+                                <span>Toggle marker on current frame</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">Shift+M</span>
+                                <span>Clear all markers</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">U</span>
+                                <span>Toggle Mute / Unmute audio</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="background: #252932; border: 1px solid #333a46; color: #4ab4ff; padding: 2px 7px; border-radius: 4px; font-weight: bold; font-size: 10px; min-width: 52px; text-align: center;">C</span>
+                                <span>Clear spatial crop back to full frame</span>
+                            </div>
+                            <div style="border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 4px; padding-top: 6px;">
+                                <div style="font-weight: bold; color: #8892b0; margin-bottom: 3px; font-size: 10px;">MOUSE CONTROLS:</div>
+                                <div style="color: #cad2c5; font-size: 10px;">• Monitor: Drag to crop • Move inside • 8 handles resize</div>
+                                <div style="color: #cad2c5; font-size: 10px;">• Timeline: Drag In/Out handles • Click/scrub playhead</div>
+                            </div>
+                        </div>
+                    `;
+
+                    const closeBtn = popup.querySelector(".cui-ref-popup-close");
+                    if (closeBtn) {
+                        closeBtn.addEventListener("mouseenter", () => closeBtn.style.color = "#ffffff");
+                        closeBtn.addEventListener("mouseleave", () => closeBtn.style.color = "#94a3b8");
+                        closeBtn.addEventListener("click", (e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            state.helpOpen = false;
+                            syncVueHelpUI(node, state);
+                        });
+                    }
+
+                    nodeEl.appendChild(popup);
+                }
+
+                const rect = nodeEl.getBoundingClientRect();
+                if (rect.right + 380 > window.innerWidth && rect.left > 380) {
+                    popup.style.left = "auto";
+                    popup.style.right = "calc(100% + 12px)";
+                } else {
+                    popup.style.left = "calc(100% + 12px)";
+                    popup.style.right = "auto";
+                }
+
+                popup.style.display = !isCollapsed && state.helpOpen ? "block" : "none";
+            }
+
+            function removeVueHelpUI(node) {
+                const nodeEl = document.querySelector(`[data-node-id="${node.id}"]`);
+                if (nodeEl) {
+                    nodeEl.querySelector(":scope > .cui-ref-help-btn")?.remove();
+                    nodeEl.querySelector(":scope > .cui-ref-guide-popup")?.remove();
+                }
+            }
+
+            // Outside click & Escape handlers
+            const onGlobalPointerDown = (e) => {
+                if (!state.helpOpen) return;
+                if (isVueMode()) {
+                    const nodeEl = document.querySelector(`[data-node-id="${node.id}"]`);
+                    if (nodeEl) {
+                        const btn = nodeEl.querySelector(":scope > .cui-ref-help-btn");
+                        const popup = nodeEl.querySelector(":scope > .cui-ref-guide-popup");
+                        if (btn?.contains(e.target) || popup?.contains(e.target)) return;
+                    }
+                    state.helpOpen = false;
+                    syncVueHelpUI(node, state);
+                    return;
+                }
+
+                const canvas = app.canvas?.canvas;
+                if (!canvas) return;
+                let graphPos = app.canvas.convertEventToGraph?.(e);
+                if (!graphPos && app.canvas.ds) {
+                    const rect = canvas.getBoundingClientRect();
+                    const scale = app.canvas.ds.scale || 1;
+                    const offset = app.canvas.ds.offset || [0, 0];
+                    graphPos = [(e.clientX - rect.left) / scale - offset[0], (e.clientY - rect.top) / scale - offset[1]];
+                }
+                if (!graphPos) return;
+                const [gx, gy] = graphPos;
+                const titleH =
+                    (typeof LiteGraph !== "undefined" &&
+                        LiteGraph.NODE_TITLE_HEIGHT) ||
+                    30;
+                const helpCx = node.pos[0] + node.size[0] - 20;
+                const helpCy = node.pos[1] - titleH / 2;
+                if (Math.hypot(gx - helpCx, gy - helpCy) <= 12) return;
+
+                const popW = 360;
+                const popH = 304;
+                const popX = node.pos[0] + node.size[0] + 12;
+                const popY = node.pos[1] - titleH;
+                if (
+                    gx >= popX &&
+                    gx <= popX + popW &&
+                    gy >= popY &&
+                    gy <= popY + popH
+                ) {
+                    const closeX = popX + popW - 16;
+                    const closeY = popY + 15;
+                    if (Math.hypot(gx - closeX, gy - closeY) <= 12) {
+                        state.helpOpen = false;
+                        node.setDirtyCanvas(true, true);
+                    }
+                    return;
+                }
+
+                state.helpOpen = false;
+                node.setDirtyCanvas(true, true);
+            };
+            window.addEventListener("pointerdown", onGlobalPointerDown, true);
+
+            const onGlobalKeyDown = (e) => {
+                if (e.key === "Escape" && state.helpOpen) {
+                    state.helpOpen = false;
+                    if (isVueMode()) {
+                        syncVueHelpUI(node, state);
+                    } else {
+                        node.setDirtyCanvas(true, true);
+                    }
+                }
+            };
+            window.addEventListener("keydown", onGlobalKeyDown, true);
+
+            // Hook node mouse handlers as fallbacks
             const origOnMouseDown = node.onMouseDown;
-            node.onMouseDown = function (e, localPos) {
+            node.onMouseDown = function (e, localPos, graphCanvas) {
+                if (!localPos) return origOnMouseDown?.apply(this, arguments);
                 if (isNodeCorner(localPos[0], localPos[1], node)) {
                     return origOnMouseDown?.apply(this, arguments);
                 }
+                const [px, py] = localPos;
+                const titleH =
+                    (typeof LiteGraph !== "undefined" &&
+                        LiteGraph.NODE_TITLE_HEIGHT) ||
+                    30;
+                const helpCx = node.size[0] - 20;
+                const helpCy = -titleH / 2;
+                const helpDist = Math.hypot(px - helpCx, py - helpCy);
+
+                if (helpDist <= 12) {
+                    state.helpOpen = !state.helpOpen;
+                    node.setDirtyCanvas(true, true);
+                    return true;
+                }
+
+                if (state.helpOpen) {
+                    const popW = 360;
+                    const popH = 304;
+                    const popX = node.size[0] + 12;
+                    const popY = -titleH;
+                    const closeCx = popX + popW - 16;
+                    const closeCy = popY + 15;
+
+                    if (Math.hypot(px - closeCx, py - closeCy) <= 12) {
+                        state.helpOpen = false;
+                        node.setDirtyCanvas(true, true);
+                        return true;
+                    }
+
+                    if (
+                        px >= popX &&
+                        px <= popX + popW &&
+                        py >= popY &&
+                        py <= popY + popH
+                    ) {
+                        return true;
+                    }
+
+                    state.helpOpen = false;
+                    node.setDirtyCanvas(true, true);
+                }
+
                 if (handleMouseDown(e, localPos)) return true;
                 return origOnMouseDown?.apply(this, arguments);
             };
 
             const origOnMouseMove = node.onMouseMove;
-            node.onMouseMove = function (e, localPos) {
+            node.onMouseMove = function (e, localPos, graphCanvas) {
+                if (!localPos) return origOnMouseMove?.apply(this, arguments);
                 const [px, py] = localPos;
 
                 // Check ? Help icon hover on title bar
@@ -2519,9 +2831,30 @@ app.registerExtension({
                 const helpCy = -titleH / 2;
                 const helpDist = Math.hypot(px - helpCx, py - helpCy);
                 const isHelpHover = helpDist <= 12;
-                if (isHelpHover !== state.helpHovered) {
+
+                let isCloseHover = false;
+                if (state.helpOpen) {
+                    const popW = 360;
+                    const popX = node.size[0] + 12;
+                    const popY = -titleH;
+                    const closeCx = popX + popW - 16;
+                    const closeCy = popY + 15;
+                    isCloseHover = Math.hypot(px - closeCx, py - closeCy) <= 12;
+                }
+
+                if (
+                    isHelpHover !== state.helpBadgeHovered ||
+                    isCloseHover !== state.closeHovered
+                ) {
+                    state.helpBadgeHovered = isHelpHover;
                     state.helpHovered = isHelpHover;
+                    state.closeHovered = isCloseHover;
                     node.setDirtyCanvas(true, true);
+                }
+
+                const canvasEl = graphCanvas?.canvas || app.canvas?.canvas;
+                if (canvasEl && (isHelpHover || isCloseHover)) {
+                    canvasEl.style.cursor = "pointer";
                 }
 
                 if (handleMouseMove(e, localPos)) return true;
@@ -2555,7 +2888,7 @@ app.registerExtension({
             window.addEventListener("mouseup", onGlobalPointerUp);
 
             // Draw Help Button & Floating Shortcut Guide Popup
-            function drawHelpBadgeAndPopup(ctx, node, isHovered) {
+            function drawHelpBadgeAndPopup(ctx, node, isBadgeHover, isOpen) {
                 const titleH =
                     (typeof LiteGraph !== "undefined" &&
                         LiteGraph.NODE_TITLE_HEIGHT) ||
@@ -2563,27 +2896,28 @@ app.registerExtension({
                 const cx = node.size[0] - 20;
                 const cy = -titleH / 2;
                 const r = 8;
+                const isBadgeActive = isBadgeHover || isOpen;
 
                 ctx.save();
                 ctx.beginPath();
                 ctx.arc(cx, cy, r, 0, Math.PI * 2);
-                ctx.fillStyle = isHovered
+                ctx.fillStyle = isBadgeActive
                     ? C.accent
                     : "rgba(255, 255, 255, 0.15)";
                 ctx.fill();
-                ctx.strokeStyle = isHovered
+                ctx.strokeStyle = isBadgeActive
                     ? C.accentGlow
                     : "rgba(255, 255, 255, 0.35)";
                 ctx.lineWidth = 1;
                 ctx.stroke();
 
-                ctx.fillStyle = isHovered ? "#000" : "#fff";
+                ctx.fillStyle = isBadgeActive ? "#000" : "#fff";
                 ctx.font = "bold 10px sans-serif";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
                 ctx.fillText("?", cx, cy);
 
-                if (isHovered) {
+                if (isOpen) {
                     const popW = 360;
                     const popH = 304;
                     const popX = node.size[0] + 12;
@@ -2621,6 +2955,14 @@ app.registerExtension({
                         popX + 10,
                         popY + 18,
                     );
+
+                    // Close "✕" Button
+                    const closeCx = popX + popW - 16;
+                    const closeCy = popY + 15;
+                    ctx.fillStyle = state.closeHovered ? "#ffffff" : "#94a3b8";
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("✕", closeCx, closeCy);
 
                     // Shortcut rows
                     const shortcuts = [
@@ -2696,7 +3038,12 @@ app.registerExtension({
             const origOnDrawForeground = node.onDrawForeground;
             node.onDrawForeground = function (ctx) {
                 const ret = origOnDrawForeground?.apply(this, arguments);
-                drawHelpBadgeAndPopup(ctx, node, state.helpHovered);
+                drawHelpBadgeAndPopup(
+                    ctx,
+                    node,
+                    state.helpBadgeHovered,
+                    state.helpOpen,
+                );
                 return ret;
             };
 
@@ -2708,6 +3055,9 @@ app.registerExtension({
                 });
                 window.removeEventListener("pointerup", onGlobalPointerUp);
                 window.removeEventListener("mouseup", onGlobalPointerUp);
+                window.removeEventListener("pointerdown", onGlobalPointerDown, true);
+                window.removeEventListener("keydown", onGlobalKeyDown, true);
+                removeVueHelpUI(node);
                 state.thumbSeq++;
                 state.isGeneratingThumbs = false;
                 state.isPlaying = false;

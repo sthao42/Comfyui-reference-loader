@@ -10,8 +10,8 @@ const CROP_HANDLE_SIZE = 6;
 const MIN_SEL_PX = 10;
 const RESIZE_CORNER_SIZE = 20;
 const MIN_NODE_WIDTH = 480;
-const MIN_NODE_HEIGHT = 650;
-const CUSTOM_WIDGET_MIN_H = 350;
+const MIN_NODE_HEIGHT = 720;
+const CUSTOM_WIDGET_MIN_H = 360;
 
 // Cap on file size fetched for the audio waveform preview (decodeAudioData on a
 // huge video would allocate a multi-GB AudioBuffer and could OOM the tab).
@@ -689,6 +689,13 @@ app.registerExtension({
                 }
 
                 generateThumbnails();
+                if (!isVueMode() && !node._was_configured) {
+                    const computed = node.computeSize();
+                    node.setSize([
+                        Math.max(node.size[0], computed[0]),
+                        Math.max(node.size[1], computed[1]),
+                    ]);
+                }
                 node.setDirtyCanvas(true, true);
             }
 
@@ -1080,6 +1087,16 @@ app.registerExtension({
                     node.previewMediaType = "custom";
                 }
                 const ret = origOnConfigure?.apply(this, arguments);
+                if (
+                    !node.size ||
+                    node.size[0] < MIN_NODE_WIDTH ||
+                    node.size[1] < MIN_NODE_HEIGHT
+                ) {
+                    node.setSize?.([
+                        Math.max(node.size?.[0] || 0, MIN_NODE_WIDTH),
+                        Math.max(node.size?.[1] || 0, MIN_NODE_HEIGHT),
+                    ]);
+                }
                 node.onDrawBackground = function (_ctx) {
                     if (
                         node.widgets?.some(
@@ -1223,6 +1240,18 @@ app.registerExtension({
                 value: "",
                 serialize: false,
                 options: { serialize: false },
+
+                computeSize: function (width) {
+                    const w = width || MIN_NODE_WIDTH;
+                    const availW = Math.max(100, w - MARGIN * 2);
+                    const vw = state.videoWidth || 16;
+                    const vh = state.videoHeight || 9;
+                    const monitorH = Math.max(80, availW * (vh / vw));
+                    const infoH = state.videoLoaded ? 18 : 0;
+                    const transportLayout = calcTransportLayout(availW);
+                    const h = monitorH + 110 + (infoH > 0 ? infoH + 4 : 0) + transportLayout.totalH + 20;
+                    return [w, Math.max(CUSTOM_WIDGET_MIN_H, h)];
+                },
 
                 computeLayoutSize: function (_n) {
                     if (isVueMode()) {
@@ -3154,6 +3183,19 @@ app.registerExtension({
                 return origOnRemoved?.apply(this, arguments);
             };
 
+            // Minimum node dimensions and computeSize constraint
+            node.min_size = [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+
+            const origComputeSize = node.computeSize;
+            node.computeSize = function (size) {
+                const sz = origComputeSize
+                    ? origComputeSize.apply(this, arguments)
+                    : [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+                sz[0] = Math.max(sz[0] || 0, MIN_NODE_WIDTH);
+                sz[1] = Math.max(sz[1] || 0, MIN_NODE_HEIGHT);
+                return sz;
+            };
+
             // Enforce minimum node dimensions smoothly on resize
             const origOnResize = node.onResize;
             node.onResize = function (size) {
@@ -3183,7 +3225,7 @@ app.registerExtension({
             // Register custom widget into node widget list
             node.addCustomWidget(customWidget);
 
-            // Set a generous default size for the node layout
+            // Set generous default size for the node layout and apply immediately
             if (
                 !node.size ||
                 node.size[0] < MIN_NODE_WIDTH ||
@@ -3191,8 +3233,24 @@ app.registerExtension({
             ) {
                 node.size = [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
             }
+            node.setSize?.(node.computeSize());
 
             return result;
         };
+    },
+    nodeCreated(node) {
+        if (node?.type === "LoadVideoCrop" || node?.comfyClass === "LoadVideoCrop") {
+            if (
+                !node.size ||
+                node.size[0] < MIN_NODE_WIDTH ||
+                node.size[1] < MIN_NODE_HEIGHT
+            ) {
+                const computed = node.computeSize?.() || [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+                node.setSize([
+                    Math.max(node.size?.[0] || 0, computed[0], MIN_NODE_WIDTH),
+                    Math.max(node.size?.[1] || 0, computed[1], MIN_NODE_HEIGHT),
+                ]);
+            }
+        }
     },
 });

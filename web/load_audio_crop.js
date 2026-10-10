@@ -6,7 +6,7 @@ const HANDLE_RADIUS = 7;
 const WIDGET_HEIGHT = 160;
 const HEADER_H = 22;
 const MIN_NODE_WIDTH = 380;
-const MIN_NODE_HEIGHT = 280;
+const MIN_NODE_HEIGHT = 340;
 const RESIZE_CORNER_SIZE = 20;
 
 const C = {
@@ -543,6 +543,13 @@ app.registerExtension({
                         0,
                         Math.min(state.duration, startVal),
                     );
+                    if (!isVueMode() && !node._was_configured) {
+                        const computed = node.computeSize();
+                        node.setSize?.([
+                            Math.max(node.size?.[0] || 0, computed[0], MIN_NODE_WIDTH),
+                            Math.max(node.size?.[1] || 0, computed[1], MIN_NODE_HEIGHT),
+                        ]);
+                    }
                     node.setDirtyCanvas(true, true);
                 } catch (err) {
                     if (seq !== loadSeq) return;
@@ -621,6 +628,16 @@ app.registerExtension({
             node.onConfigure = function (info) {
                 node._was_configured = true;
                 const ret = origOnConfigure?.apply(this, arguments);
+                if (
+                    !node.size ||
+                    node.size[0] < MIN_NODE_WIDTH ||
+                    node.size[1] < MIN_NODE_HEIGHT
+                ) {
+                    node.setSize?.([
+                        Math.max(node.size?.[0] || 0, MIN_NODE_WIDTH),
+                        Math.max(node.size?.[1] || 0, MIN_NODE_HEIGHT),
+                    ]);
+                }
 
                 hideAudioUIWidget();
                 requestAnimationFrame(hideAudioUIWidget);
@@ -754,6 +771,15 @@ app.registerExtension({
                 value: "",
                 serialize: false,
                 options: { serialize: false },
+
+                computeSize: function (width) {
+                    const w = width || MIN_NODE_WIDTH;
+                    const transW = Math.max(20, w - MARGIN * 2 - 12);
+                    const transportLayout = calcAudioTransportLayout(transW);
+                    const infoH = state.duration > 0 ? 18 : 0;
+                    const h = HEADER_H + 6 + 36 + (infoH > 0 ? infoH + 4 : 0) + transportLayout.totalH + 24;
+                    return [w, Math.max(WIDGET_HEIGHT, h)];
+                },
 
                 computeLayoutSize: function (_n) {
                     if (isVueMode()) {
@@ -2192,9 +2218,57 @@ app.registerExtension({
                 return r;
             };
 
+            // Minimum node dimensions and computeSize constraint
+            node.min_size = [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+
+            const origComputeSize = node.computeSize;
+            node.computeSize = function (size) {
+                const sz = origComputeSize
+                    ? origComputeSize.apply(this, arguments)
+                    : [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+                sz[0] = Math.max(sz[0] || 0, MIN_NODE_WIDTH);
+                sz[1] = Math.max(sz[1] || 0, MIN_NODE_HEIGHT);
+                return sz;
+            };
+
+            // Enforce minimum node dimensions smoothly on resize
+            const origOnResize = node.onResize;
+            node.onResize = function (size) {
+                if (size) {
+                    size[0] = Math.max(size[0], MIN_NODE_WIDTH);
+                    size[1] = Math.max(size[1], MIN_NODE_HEIGHT);
+                }
+                return origOnResize?.apply(this, arguments);
+            };
+
             node.addCustomWidget(waveformWidget);
+
+            // Set generous default size for the node layout and apply immediately
+            if (
+                !node.size ||
+                node.size[0] < MIN_NODE_WIDTH ||
+                node.size[1] < MIN_NODE_HEIGHT
+            ) {
+                node.size = [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+            }
+            node.setSize?.(node.computeSize());
 
             return result;
         };
+    },
+    nodeCreated(node) {
+        if (node?.type === "LoadAudioCrop" || node?.comfyClass === "LoadAudioCrop") {
+            if (
+                !node.size ||
+                node.size[0] < MIN_NODE_WIDTH ||
+                node.size[1] < MIN_NODE_HEIGHT
+            ) {
+                const computed = node.computeSize?.() || [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+                node.setSize([
+                    Math.max(node.size?.[0] || 0, computed[0], MIN_NODE_WIDTH),
+                    Math.max(node.size?.[1] || 0, computed[1], MIN_NODE_HEIGHT),
+                ]);
+            }
+        }
     },
 });

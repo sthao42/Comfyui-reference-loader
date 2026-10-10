@@ -4,7 +4,7 @@ import { api } from "../../scripts/api.js";
 const MARGIN = 10;
 const HANDLE = 8;
 const MIN_SEL = 6;
-const MIN_EDITOR_H = 80;
+const MIN_EDITOR_H = 120;
 const RESIZE_CORNER_SIZE = 20;
 const MIN_NODE_WIDTH = 260;
 const MIN_NODE_HEIGHT = 380;
@@ -267,7 +267,7 @@ app.registerExtension({
                         name,
                         type,
                         options: {},
-                        draw: () => {},
+                        draw: () => { },
                         computeSize: () => [0, 0],
                     };
                 }
@@ -292,7 +292,7 @@ app.registerExtension({
                             typeof document !== "undefined"
                                 ? document.createElement("div")
                                 : null,
-                        draw: () => {},
+                        draw: () => { },
                         computeSize: () => [0, 0],
                     };
                 }
@@ -510,6 +510,16 @@ app.registerExtension({
                 serialize: false,
                 options: { serialize: false },
 
+                computeSize: function (width) {
+                    const w = width || MIN_NODE_WIDTH;
+                    const availW = Math.max(1, w - MARGIN * 2);
+                    const prevH = state.img
+                        ? Math.min(220, previewHeight(availW))
+                        : 120;
+                    const desired = prevH + ui().row + 12;
+                    return [w, Math.max(MIN_EDITOR_H, desired)];
+                },
+
                 // Growable widget: fills available vertical space in canvas layout
                 computeLayoutSize: (n) => {
                     if (isVueMode()) {
@@ -521,10 +531,14 @@ app.registerExtension({
                             8;
                         return { minHeight: h, maxHeight: h, minWidth: 0 };
                     }
+                    const w = n?.size?.[0] || MIN_NODE_WIDTH;
+                    const availW = Math.max(1, w - MARGIN * 2);
+                    const prevH = state.img ? Math.min(220, previewHeight(availW)) : 120;
+                    const desired = prevH + ui().row + 12;
                     return {
-                        minHeight: MIN_EDITOR_H,
+                        minHeight: Math.max(MIN_EDITOR_H, desired),
                         maxHeight: 100000,
-                        minWidth: 0,
+                        minWidth: MIN_NODE_WIDTH,
                     };
                 },
 
@@ -765,11 +779,11 @@ app.registerExtension({
                                 state.drag.mode === "move"
                                     ? "grabbing"
                                     : state.drag.mode === "resize"
-                                      ? state.drag.corner === "nw" ||
-                                        state.drag.corner === "se"
-                                          ? "nwse-resize"
-                                          : "nesw-resize"
-                                      : "crosshair";
+                                        ? state.drag.corner === "nw" ||
+                                            state.drag.corner === "se"
+                                            ? "nwse-resize"
+                                            : "nesw-resize"
+                                        : "crosshair";
                         }
                         this.triggerDraw?.();
                         return true;
@@ -781,7 +795,7 @@ app.registerExtension({
                     if (t === "pointermove" || t === "mousemove") {
                         if (
                             Math.abs(px - drag.startX) +
-                                Math.abs(py - drag.startY) >
+                            Math.abs(py - drag.startY) >
                             2
                         ) {
                             drag.moved = true;
@@ -1055,7 +1069,7 @@ app.registerExtension({
                             },
                         });
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             // In Vue mode WidgetLegacy sets widget.width on the widget object,
@@ -1071,10 +1085,10 @@ app.registerExtension({
                         Object.defineProperty(editorWidget, "width", {
                             configurable: true,
                             get: () => undefined,
-                            set: () => {},
+                            set: () => { },
                         });
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
 
             const mpWidget = node.widgets?.find(
@@ -1142,7 +1156,7 @@ app.registerExtension({
                 }
                 const baseUrl = api.apiURL(
                     `/view?filename=${encodeURIComponent(info.filename)}` +
-                        `&type=${info.type}&subfolder=${encodeURIComponent(info.subfolder)}`,
+                    `&type=${info.type}&subfolder=${encodeURIComponent(info.subfolder)}`,
                 );
                 const url = forceRefresh
                     ? `${baseUrl}&rand=${Date.now()}`
@@ -1182,21 +1196,13 @@ app.registerExtension({
                     if (
                         autoFit &&
                         !isVueMode() &&
-                        !node._was_configured &&
-                        (!node.size || node.size[1] <= 150)
+                        !node._was_configured
                     ) {
+                        const curW = Math.max(node.size?.[0] || 0, MIN_NODE_WIDTH);
                         const minSize = node.computeSize();
-                        const desired =
-                            previewHeight(node.size[0] - MARGIN * 2) +
-                            ui().row +
-                            8;
-                        const height =
-                            minSize[1] -
-                            MIN_EDITOR_H +
-                            Math.max(MIN_EDITOR_H, desired);
                         node.setSize([
-                            Math.max(node.size[0], minSize[0]),
-                            height,
+                            Math.max(curW, minSize[0]),
+                            Math.max(MIN_NODE_HEIGHT, minSize[1]),
                         ]);
                     }
                     cleanStockPreviewWidgets();
@@ -1301,6 +1307,16 @@ app.registerExtension({
                     node.previewMediaType = "image";
                 }
                 const r = prevOnConfigure?.apply(this, arguments);
+                if (
+                    !node.size ||
+                    node.size[0] < MIN_NODE_WIDTH ||
+                    node.size[1] < MIN_NODE_HEIGHT
+                ) {
+                    node.setSize?.([
+                        Math.max(node.size?.[0] || 0, MIN_NODE_WIDTH),
+                        Math.max(node.size?.[1] || 0, MIN_NODE_HEIGHT),
+                    ]);
+                }
                 cleanStockPreviewWidgets();
                 requestAnimationFrame(cleanStockPreviewWidgets);
                 setTimeout(cleanStockPreviewWidgets, 100);
@@ -1871,7 +1887,7 @@ app.registerExtension({
                                     const u = new URL(url, window.location.href);
                                     u.searchParams.delete("preview");
                                     url = u.toString();
-                                } catch {}
+                                } catch { }
                                 window.open(url, "_blank");
                             },
                         });
@@ -1947,7 +1963,7 @@ app.registerExtension({
                                     try {
                                         useMaskEditor().openMaskEditor(node);
                                         return;
-                                    } catch (e) {}
+                                    } catch (e) { }
                                 }
                                 if (
                                     typeof app !== "undefined" &&
@@ -1960,7 +1976,7 @@ app.registerExtension({
                                         }
                                         app.open_maskeditor();
                                         return;
-                                    } catch (e) {}
+                                    } catch (e) { }
                                 }
                                 try {
                                     app.canvas?.selectNode?.(node);
@@ -2000,8 +2016,56 @@ app.registerExtension({
                 return origOnRemoved?.apply(this, arguments);
             };
 
+            // Minimum node dimensions and computeSize constraint
+            node.min_size = [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+
+            const origComputeSize = node.computeSize;
+            node.computeSize = function (size) {
+                const sz = origComputeSize
+                    ? origComputeSize.apply(this, arguments)
+                    : [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+                sz[0] = Math.max(sz[0] || 0, MIN_NODE_WIDTH);
+                sz[1] = Math.max(sz[1] || 0, MIN_NODE_HEIGHT);
+                return sz;
+            };
+
+            // Enforce minimum node dimensions smoothly on resize
+            const origOnResize = node.onResize;
+            node.onResize = function (size) {
+                if (size) {
+                    size[0] = Math.max(size[0], MIN_NODE_WIDTH);
+                    size[1] = Math.max(size[1], MIN_NODE_HEIGHT);
+                }
+                return origOnResize?.apply(this, arguments);
+            };
+
+            // Set generous default size for the node layout and apply immediately
+            if (
+                !node.size ||
+                node.size[0] < MIN_NODE_WIDTH ||
+                node.size[1] < MIN_NODE_HEIGHT
+            ) {
+                node.size = [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+            }
+            node.setSize?.(node.computeSize());
+
             loadImage(true); // fresh node: fit to the default image
             return result;
         };
+    },
+    nodeCreated(node) {
+        if (node?.type === "LoadImageCrop" || node?.comfyClass === "LoadImageCrop") {
+            if (
+                !node.size ||
+                node.size[0] < MIN_NODE_WIDTH ||
+                node.size[1] < MIN_NODE_HEIGHT
+            ) {
+                const computed = node.computeSize?.() || [MIN_NODE_WIDTH, MIN_NODE_HEIGHT];
+                node.setSize([
+                    Math.max(node.size?.[0] || 0, computed[0], MIN_NODE_WIDTH),
+                    Math.max(node.size?.[1] || 0, computed[1], MIN_NODE_HEIGHT),
+                ]);
+            }
+        }
     },
 });

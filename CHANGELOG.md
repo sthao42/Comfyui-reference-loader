@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.5] - 2026-10-10
+
+### Fixed
+- **Initial Node Sizing & Layout Fit**: Resolved an issue where `LoadVideoCrop`, `LoadAudioCrop`, and `LoadImageCrop` loaded onto the canvas undersized, causing bottom transport toolbars, waveform tracks, or image previews to overflow until the user manually clicked or resized the nodes.
+- **Custom Widget `computeSize`**: Implemented `computeSize(width)` across all custom canvas widgets (`video_timeline_ui`, `audio_seeker_player`, `crop_editor`) to calculate required component heights for LiteGraph rather than defaulting to nominal widget heights.
+- **Node-Level Dimension Clamping**: Wrapped `node.computeSize`, configured `node.min_size`, implemented `node.onResize`, and added `nodeCreated` extension hooks and `onConfigure` size validation to enforce minimum bounds across node creation, workflow restoration, and resizing.
+- **Image Preview Auto-Fit Tuning**: Adjusted default height and eliminated duplicate preview offset calculations in `LoadImageCrop` to prevent oversized cards and excessive blank spacing below image previews on initial load.
+
+---
+
 ## [1.1.4] - 2026-10-05
 
 ### Changed
